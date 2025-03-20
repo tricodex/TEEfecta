@@ -1,0 +1,22 @@
+{
+  "name": "4g3n7-cvm-app",
+  "version": "1.0.0",
+  "description": "Secure trading agent running inside Marlin Oyster CVM",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [
+    "4g3n7",
+    "cvm",
+    "trading",
+    "marlin",
+    "tee"
+  ],
+  "author": "4g3n7 Team",
+  "license": "MIT",
+  "dependencies": {
+    "express": "^4.18.2"
+  }
+}
