@@ -42,6 +42,9 @@ RUN chmod +x setup.sh
 
 # 4g3n7 application files
 COPY ./app /app/agent
+WORKDIR /app/agent
+RUN npm install
+WORKDIR /app
 RUN chmod -R +x /app/agent
 
 # entry point
