@@ -1,0 +1,37 @@
+{
+  "name": "4g3n7",
+  "version": "0.1.0",
+  "description": "Privacy-preserving AI financial assistant",
+  "main": "index.js",
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "nodemon src/index.js",
+    "test": "jest",
+    "validate-env": "node utils/env.js",
+    "lint": "eslint ."
+  },
+  "keywords": [
+    "ai",
+    "financial",
+    "privacy",
+    "tee",
+    "wallet"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "axios": "^1.6.7",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.1",
+    "ethers": "^5.7.2",
+    "express": "^4.18.2",
+    "express-async-handler": "^1.2.0",
+    "node-fetch": "^2.7.0",
+    "openai": "^4.28.0"
+  },
+  "devDependencies": {
+    "eslint": "^8.56.0",
+    "jest": "^29.7.0",
+    "nodemon": "^3.0.3"
+  }
+}
