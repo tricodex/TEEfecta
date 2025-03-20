@@ -1,0 +1,6 @@
+services:
+  agent:
+    image: 4g3n7-marlin-cvm:latest
+    init: true
+    network_mode: host
+    restart: unless-stopped
