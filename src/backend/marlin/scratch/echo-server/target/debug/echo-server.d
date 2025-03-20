@@ -1,0 +1,1 @@
+/Users/pc/apps/MPC/hackathons/TEEfecta/mono/src/backend/marlin/scratch/echo-server/target/debug/echo-server: /Users/pc/apps/MPC/hackathons/TEEfecta/mono/src/backend/marlin/scratch/echo-server/src/main.rs

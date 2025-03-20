@@ -55,12 +55,12 @@ fi
 # Build the Docker image
 echo "Building Docker image for $ARCHITECTURE architecture..."
 cd "$OUTPUT_DIR"
-docker build -t 4g3n7-marlin-cvm:$VERSION --build-arg TARGETARCH=$ARCHITECTURE .
+docker build -t cyama/4g3n7-marlin-cvm:$VERSION --build-arg TARGETARCH=$ARCHITECTURE .
 
-echo "Successfully built 4g3n7-marlin-cvm:$VERSION for $ARCHITECTURE"
+echo "Successfully built cyama/4g3n7-marlin-cvm:$VERSION for $ARCHITECTURE"
 echo ""
 echo "To run the image locally:"
-echo "  docker run -p 3000:3000 4g3n7-marlin-cvm:$VERSION"
+echo "  docker run -p 3000:3000 cyama/4g3n7-marlin-cvm:$VERSION"
 echo ""
 echo "To deploy to Marlin Oyster:"
 echo "  oyster-cvm deploy --wallet-private-key <key> --duration-in-minutes 60 --docker-compose docker-compose.yml"
