@@ -7,7 +7,7 @@
  * - Response validation
  */
 
-import { describe, it, expect } from "bun:test";
+import { test, describe, expect } from "bun:test";
 import { OpenAIClient, AzureKeyCredential } from '@azure/openai';
 import * as dotenv from 'dotenv';
 import axios from 'axios';
@@ -65,7 +65,7 @@ describe('Azure OpenAI Integration', () => {
   setupTests();
   
   // Test Azure OpenAI client creation
-  it('should create an Azure OpenAI client without errors', () => {
+  test('should create an Azure OpenAI client without errors', () => {
     const credential = new AzureKeyCredential(AZURE_OPENAI_API_KEY);
     const client = new OpenAIClient(endpoint, credential, {
       apiVersion: AZURE_OPENAI_API_VERSION
@@ -74,7 +74,7 @@ describe('Azure OpenAI Integration', () => {
   });
   
   // Test direct endpoint accessibility with explicit error handling
-  it('should access Azure OpenAI API endpoint', async () => {
+  test('should access Azure OpenAI API endpoint', async () => {
     try {
       const response = await axios.get(`${endpoint}/.well-known/openai-openapi.json`, {
         headers: {
@@ -165,11 +165,14 @@ describe('Azure OpenAI Integration', () => {
   });
   
   // Test a simple chat completion with thorough error handling
-  it('should attempt to send a chat completion request', async () => {
+  // Using longer timeout for this test - Bun default is 5s
+  test('should attempt to send a chat completion request', async () => {
     const credential = new AzureKeyCredential(AZURE_OPENAI_API_KEY);
     const client = new OpenAIClient(endpoint, credential, {
       apiVersion: AZURE_OPENAI_API_VERSION
     });
+    
+    // Note: Bun doesn't support test.timeout(), but we can set timeout in package.json or use --timeout flag
     
     try {
       const result = await client.getChatCompletions(
@@ -233,5 +236,5 @@ describe('Azure OpenAI Integration', () => {
         }
       }
     }
-  });
+  }, 30000); // Set 30 second timeout for this specific test
 }); 
