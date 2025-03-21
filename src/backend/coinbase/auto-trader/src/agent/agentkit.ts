@@ -7,13 +7,12 @@ import {
   cdpApiActionProvider,
   cdpWalletActionProvider,
 } from '@coinbase/agentkit';
-import { recallActionProvider } from '../action-providers';
 
 export interface AgentKitConfig {
   cdpApiKeyName: string;
   cdpApiKeyPrivateKey: string;
   networkId?: string;
-  recallPrivateKey: string;
+  recallPrivateKey?: string;
 }
 
 /**
@@ -42,9 +41,7 @@ export async function setupAgentKit(config: AgentKitConfig) {
       cdpWalletActionProvider({
         apiKeyName: config.cdpApiKeyName,
         apiKeyPrivateKey: config.cdpApiKeyPrivateKey
-      }),
-      // Add our custom Recall Network action provider
-      recallActionProvider(config.recallPrivateKey)
+      })
     ]
   });
   

@@ -2,6 +2,7 @@
 .env
 .env.local
 .env.*.local
+.env.export
 
 # Logs
 npm-debug.log*
@@ -90,3 +91,5 @@ notes.md
 /app/id.*
 # Rust build artifacts
 /target/
+.azure
+.env.azure

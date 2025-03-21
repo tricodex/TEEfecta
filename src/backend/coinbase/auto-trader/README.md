@@ -1,143 +1,231 @@
-# 4g3n7: Autonomous Trading Agent
+# 4g3n7 - Autonomous Trading Agent
 
-4g3n7 is a secure, privacy-preserving autonomous trading agent that combines Trusted Execution Environments (TEEs), AI, and blockchain technologies.
+An autonomous trading agent that leverages Trusted Execution Environments (TEEs), blockchain technology, and AI to provide secure, private, and transparent trading operations.
 
-## Features
+## Key Technologies
 
-### Core Features
-- **Secure Execution**: Runs inside Marlin Oyster Confidential Virtual Machine (CVM) for TEE protection
-- **On-chain Actions**: Uses Coinbase AgentKit for wallet management and transactions
-- **AI-powered**: Integrates with Azure OpenAI for intelligent trading decisions
-- **Transparent History**: Stores reasoning trails on Recall Network for transparency
+- **Marlin Oyster CVM**: Secure execution environment
+- **Coinbase AgentKit**: Financial operations toolkit
+- **Azure OpenAI**: AI-powered decision making
+- **Recall Network**: Transparent reasoning storage
 
-### Technical Stack
-- TypeScript/Node.js for application logic
-- Marlin Oyster CVM for Trusted Execution Environment
-- Coinbase AgentKit for on-chain wallet management
-- Azure OpenAI with LangChain for AI decision making
-- Recall Network for transparent reasoning storage
+## Environment Setup
 
-## Setup
-
-### Prerequisites
-- Node.js 16+ and npm
-- Coinbase Developer Platform (CDP) API credentials
-- Azure OpenAI API credentials
-- Recall Network wallet (with testnet or mainnet ETH)
-- Marlin Oyster CVM CLI (for deployment)
-
-### Installation
-
-1. **Clone the Repository**
-   ```bash
-   git clone <repository-url>
-   cd path/to/repository
-   ```
-
-2. **Install Dependencies**
-   ```bash
-   npm install
-   ```
-
-3. **Configure Environment Variables**
-   Copy the example environment file and edit with your credentials:
-   ```bash
-   cp .env.example .env
-   # Edit .env with your API keys
-   ```
-
-### Development
-
-**Build the Project**
-```bash
-npm run build
-```
-
-**Run Locally**
-```bash
-npm run dev
-```
-
-**Deploy to Marlin Oyster CVM**
-```bash
-# First build the project
-npm run build
-
-# Deploy with wallet key for 60 minutes
-npm run deploy -- --wallet-key <your-wallet-key> --duration 60
-```
-
-## API Documentation
-
-### Endpoints
-
-- `GET /health`: Health check endpoint
-- `GET /status`: Agent status including wallet information
-- `POST /analyze`: Analyze portfolio and market data
-- `POST /trade`: Execute a trade
-- `GET /reasoning/:decisionId`: Retrieve reasoning history for a decision
-
-### Example Usage
-
-**Analyze a Portfolio**
+Copy the `.env.sample` file to create your own `.env` file and fill in your credentials:
 
 ```bash
-curl -X POST http://localhost:3000/analyze \
-  -H "Content-Type: application/json" \
-  -d '{
-    "portfolio": {
-      "assets": [
-        {"symbol": "ETH", "amount": 2.5, "value": 6250},
-        {"symbol": "USDC", "amount": 5000, "value": 5000}
-      ],
-      "total_value": 11250
-    },
-    "marketData": {
-      "ETH": {"price": 2500, "24h_change": 3.2},
-      "BTC": {"price": 45000, "24h_change": 1.5},
-      "USDC": {"price": 1, "24h_change": 0}
-    }
-  }'
+cp .env.sample .env
 ```
+
+### Azure OpenAI Configuration
+
+The application has been tested to work with the following Azure OpenAI configuration:
+
+```
+AZURE_OPENAI_API_KEY=your_api_key
+AZURE_OPENAI_ENDPOINT=https://your-instance-name.openai.azure.com
+AZURE_OPENAI_API_DEPLOYMENT_NAME=gpt-4o
+AZURE_OPENAI_API_VERSION=2023-12-01-preview
+```
+
+Make sure your Azure OpenAI instance has a deployment of `gpt-4o` (or update the deployment name to match your configuration).
 
 ## Development
 
-### Project Structure
+### Install Dependencies
 
-```
-/auto-trader/
-├── src/
-│   ├── main.ts                 # Application entry point
-│   ├── agent/                  # Agent implementation
-│   │   ├── index.ts            # Agent exports
-│   │   ├── agentkit.ts         # AgentKit integration
-│   │   ├── langchain.ts        # Azure AI integration
-│   │   └── trading.ts          # Trading logic
-│   ├── action-providers/       # Custom action providers
-│   │   ├── index.ts            # Provider exports
-│   │   └── recall-provider.ts  # Recall action provider
-│   ├── prompts/                # AI prompts
-│   │   └── trading-prompts.ts  # Trading prompts
-│   ├── services/               # Supporting services
-│   │   ├── storage.ts          # Storage service
-│   │   └── attestation.ts      # Attestation service
-│   └── server.ts               # API server
-├── docker/                     # Docker deployment
-│   ├── Dockerfile              # Main Dockerfile
-│   ├── supervisord.conf        # Process configuration
-│   └── setup.sh                # Setup script
-└── scripts/                    # Deployment scripts
-    ├── build.sh                # Build script
-    └── deploy.sh               # Deployment script
+```bash
+npm install
 ```
 
-## Security Considerations
+### Build
 
-- **Private Keys**: Never log or expose private keys anywhere
-- **TEE Integrity**: Always verify attestations before trusting TEE data
-- **API Credentials**: Protect API keys with proper environment variable security
-- **Azure OpenAI**: Ensure proper data handling and prompt engineering
+```bash
+npm run build
+```
+
+### Run
+
+```bash
+npm start
+```
+
+### Testing Azure OpenAI Integration
+
+To test your Azure OpenAI integration, you can run:
+
+```bash
+node test-azure-studio.js
+```
+
+## LangChain Integration
+
+The project uses LangChain.js for integrating with Azure OpenAI. The implementation is in `src/agent/langchain.ts` and uses the following configuration pattern:
+
+```typescript
+const llm = new ChatOpenAI({
+  temperature: 0.7,
+  modelName: process.env.AZURE_OPENAI_API_DEPLOYMENT_NAME,
+  openAIApiKey: process.env.AZURE_OPENAI_API_KEY,
+  configuration: {
+    baseURL: `${process.env.AZURE_OPENAI_ENDPOINT}/openai/deployments/${process.env.AZURE_OPENAI_API_DEPLOYMENT_NAME}`,
+    defaultQuery: { "api-version": process.env.AZURE_OPENAI_API_VERSION },
+    defaultHeaders: { "api-key": process.env.AZURE_OPENAI_API_KEY }
+  }
+});
+```
+
+## Running in Marlin CVM Environment
+
+To run the application in a Marlin Oyster CVM environment, set the `MARLIN_ENCLAVE` environment variable to `true`. This will configure the application to use the appropriate settings for running inside a TEE.
 
 ## License
 
 [MIT](LICENSE)
+
+# 4G3N7 Auto Trader Test Suite
+
+This repository contains a comprehensive test suite for the 4G3N7 Auto Trader application, which integrates with Azure OpenAI for trading analysis and Recall Network for decentralized storage.
+
+## Overview
+
+The test suite validates the following components:
+
+1. **Azure OpenAI Integration** - Tests connection, error handling, and fallback mechanisms
+2. **Recall Network Integration** - Tests storage, retrieval, and querying of data
+3. **Integration Tests** - Tests the interaction between Azure OpenAI and Recall Network
+4. **End-to-End Tests** - Full system tests with fallback handling
+
+## Prerequisites
+
+Before running the tests, ensure you have:
+
+1. Bun installed (minimum version 1.2.0)
+2. Environment files configured:
+   - `.env` - Application environment variables
+   - `.env.export` - Recall Network environment exports
+   - `.env.azure` - Azure OpenAI configuration
+
+## Installation
+
+```bash
+# Clone the repository if you haven't already
+git clone <repository-url>
+cd path/to/repo/src/backend/coinbase/auto-trader
+
+# Install dependencies using Bun
+bun install
+```
+
+## Environment Configuration
+
+Create the necessary environment files:
+
+### .env.azure
+
+```
+AZURE_OPENAI_API_KEY=your_api_key
+AZURE_OPENAI_ENDPOINT=https://your-endpoint.openai.azure.com
+AZURE_OPENAI_API_DEPLOYMENT_NAME=gpt-4o
+AZURE_OPENAI_API_VERSION=2023-12-01-preview
+```
+
+### .env.export
+
+This file should contain the Recall Network environment exports, typically generated by the Recall CLI.
+
+## Running Tests
+
+The test suite includes several commands for different testing scenarios:
+
+```bash
+# Run all tests
+bun test-all
+
+# Run specific test files
+bun test-azure     # Azure OpenAI integration tests
+bun test-recall    # Recall Network integration tests
+bun test-integration   # Combined integration tests
+bun test-e2e       # End-to-end tests
+```
+
+## Test Categories
+
+### Azure OpenAI Tests
+
+Located in `tests/azure.test.ts`, these tests verify:
+
+- Connection to Azure OpenAI API
+- Graceful handling of API errors
+- Fallback mechanisms when the API is unavailable
+
+### Recall Network Tests 
+
+Located in `tests/recall.test.ts`, these tests verify:
+
+- Storage of data in the Recall Network
+- Retrieval of stored data
+- Handling of missing data
+- Listing bucket contents
+
+### Integration Tests
+
+Located in `tests/integration.test.ts`, these tests verify:
+
+- Interaction between Azure OpenAI and Recall Network
+- Handling of service failures
+- Recovery mechanisms
+- Idempotent operations
+
+### End-to-End Tests
+
+Located in `tests/e2e.test.ts`, these tests verify:
+
+- Complete workflow from analysis to storage
+- Fallback to mock analysis when Azure OpenAI is unavailable
+- Memory storage and retrieval
+
+## Test Design
+
+The tests are designed to be resilient to service failures:
+
+1. **Graceful degradation** - Tests pass even if services are unavailable, testing fallback mechanisms
+2. **Idempotency** - Operations can be repeated without side effects
+3. **Isolation** - Tests don't depend on the state from other tests
+
+## Troubleshooting
+
+### Azure OpenAI 404 Errors
+
+If you see a "404 Resource not found" error, check:
+
+1. That the deployment name in your `.env.azure` file matches the actual deployment in your Azure account
+2. The API version is correct (recommend using `2023-12-01-preview`)
+3. Your API key has access to the specified deployment
+
+### Recall Network Errors
+
+If you encounter Recall Network errors, check:
+
+1. The `.env.export` file is correctly sourced
+2. The bucket address is valid
+3. Your environment has proper network connectivity
+
+## Adding New Tests
+
+To add new tests:
+
+1. Create a new test file in the `tests` directory with the `.test.ts` extension
+2. Import the necessary testing utilities from `bun:test`
+3. Structure tests using `describe()` and `test()` functions
+4. Add the new test to the appropriate npm script in `package.json`
+
+## Building the Project
+
+```bash
+# Clean and build the TypeScript code
+bun run clean:build
+
+# Just build without cleaning
+bun run build
+```

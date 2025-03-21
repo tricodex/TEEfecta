@@ -1,6 +1,6 @@
 // API server implementation
 import express from 'express';
-import { Agent } from './agent';
+import { Agent } from './agent/index.js';
 
 /**
  * Creates an Express server with API endpoints for the agent

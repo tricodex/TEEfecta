@@ -1,7 +1,7 @@
 // Main application entry point
 import * as dotenv from 'dotenv';
-import { createServer } from './server';
-import { initAgent } from './agent';
+import { createServer } from './server.js';
+import { initAgent } from './agent/index.js';
 
 // Load environment variables
 dotenv.config();

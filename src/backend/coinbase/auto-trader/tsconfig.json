@@ -1,26 +1,25 @@
 {
   "compilerOptions": {
-    "target": "ES2020",
+    "target": "esnext",
     "module": "NodeNext",
-    "moduleResolution": "NodeNext",
     "esModuleInterop": true,
-    "allowSyntheticDefaultImports": true,
+    "moduleResolution": "NodeNext",
+    "outDir": "./dist",
     "strict": true,
     "skipLibCheck": true,
     "forceConsistentCasingInFileNames": true,
-    "outDir": "dist",
-    "declaration": true,
     "resolveJsonModule": true,
-    "experimentalDecorators": true,
-    "emitDecoratorMetadata": true
+    "declaration": true,
+    "allowSyntheticDefaultImports": true,
+    "types": ["bun-types"],
+    "typeRoots": ["./node_modules/@types", "./node_modules/bun-types"]
   },
-  "ts-node": {
-    "transpileOnly": true,
-    "compilerOptions": {
-      "module": "NodeNext",
-      "moduleResolution": "NodeNext"
-    }
-  },
-  "include": ["src/**/*"],
-  "exclude": ["node_modules", "dist"]
+  "include": [
+    "src/**/*",
+    "tests/**/*"
+  ],
+  "exclude": [
+    "node_modules",
+    "dist"
+  ]
 }

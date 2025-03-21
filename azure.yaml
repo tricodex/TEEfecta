@@ -1,0 +1,14 @@
+# yaml-language-server: $schema=https://raw.githubusercontent.com/Azure/azure-dev/main/schemas/v1.0/azure.yaml.json
+
+name: mono
+metadata:
+    template: azd-init@1.13.1
+services:
+    auto-trader:
+        project: src/backend/coinbase/auto-trader
+        host: containerapp
+        language: ts
+    marlin:
+        project: src/backend/marlin
+        host: containerapp
+        language: js

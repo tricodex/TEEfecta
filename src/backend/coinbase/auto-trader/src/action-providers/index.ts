@@ -1,2 +1,2 @@
 // Action providers exports
-export { recallActionProvider } from './recall-provider';
+// This file is intentionally left empty as we're now using the memory manager

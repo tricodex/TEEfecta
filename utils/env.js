@@ -11,16 +11,14 @@
 // Environment variable requirements for each component
 const REQUIRED_ENV_VARS = {
   core: [
-    'NODE_ENV' // 'development' or 'production'
-  ],
-  nillion: [
-    'NILLION_API_KEY',
-    'NILLION_NODE_URL'
+    'NODE_ENV', // 'development' or 'production'
+    'PORT'
   ],
   recall: [
-    'RECALL_API_KEY',
-    'RECALL_AGENT_ID',
-    'RECALL_PRIVATE_KEY'
+    'RECALL_PRIVATE_KEY',
+    'RECALL_BUCKET_ALIAS',
+    'RECALL_COT_LOG_PREFIX',
+    'RECALL_NETWORK'
   ],
   coinbase: [
     'COINBASE_CDP_KEY',
@@ -29,20 +27,16 @@ const REQUIRED_ENV_VARS = {
   ],
   ethereum: [
     'ETHEREUM_PRIVATE_KEY',
-    'ETHEREUM_RPC_URL',
     'ETHERSCAN_API_KEY'
   ],
-  t1: [
-    'T1_CONTRACT_ADDRESS'
-  ],
-  privy: [
-    'PRIVY_APP_ID',
-    'PRIVY_APP_SECRET',
-    'PRIVY_JWKS_ENDPOINT'
+  marlin: [
+    'MARLIN_ENCLAVE'
   ],
   azure: [
-    'AZURE_API_KEY',
-    'AZURE_SERVICE_ENPOINT'
+    'AZURE_OPENAI_API_KEY',
+    'AZURE_OPENAI_API_INSTANCE_NAME',
+    'AZURE_OPENAI_API_DEPLOYMENT_NAME',
+    'AZURE_OPENAI_API_VERSION'
   ]
 };
 
