@@ -79,7 +79,8 @@ export async function setupAgentKit(config: AgentKitConfig) {
       logger.info('Initializing Recall Network memory manager');
       memoryManager = new RecallMemoryManager(
         config.recallPrivateKey,
-        config.recallBucketAlias || 'auto-trader-memory'
+        config.recallBucketAlias || 'auto-trader-memory',
+        'testnet'
       );
     }
     

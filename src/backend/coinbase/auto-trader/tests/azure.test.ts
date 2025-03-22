@@ -76,88 +76,45 @@ describe('Azure OpenAI Integration', () => {
   // Test direct endpoint accessibility with explicit error handling
   test('should access Azure OpenAI API endpoint', async () => {
     try {
-      const response = await axios.get(`${endpoint}/.well-known/openai-openapi.json`, {
-        headers: {
-          'Content-Type': 'application/json',
-          'api-key': AZURE_OPENAI_API_KEY
+      // Try the chat completions endpoint directly since it's what we need
+      const url = `${endpoint}/openai/deployments/${AZURE_OPENAI_API_DEPLOYMENT_NAME}/chat/completions?api-version=${AZURE_OPENAI_API_VERSION}`;
+      
+      console.log(`Attempting to access: ${url}`);
+      
+      const response = await axios.post(
+        url,
+        {
+          messages: [{ role: 'user', content: 'Hello' }],
+          max_tokens: 5
+        },
+        {
+          headers: {
+            'Content-Type': 'application/json',
+            'api-key': AZURE_OPENAI_API_KEY
+          }
         }
-      });
+      );
       
       // If we get here, the endpoint is accessible
       console.log('Successfully accessed Azure OpenAI API endpoint');
       expect(response.status).toBe(200);
     } catch (error) {
       if (axios.isAxiosError(error)) {
-        if (error.response?.status === 404) {
-          // 404 for this specific endpoint might be normal if the well-known endpoint is not available
-          // Let's try an alternative check
-          console.log('OpenAPI schema not found at .well-known location. This is expected for some endpoints.');
-          
-          try {
-            // Direct test of chat completions endpoint
-            const url = `${endpoint}/openai/deployments/${AZURE_OPENAI_API_DEPLOYMENT_NAME}/chat/completions?api-version=${AZURE_OPENAI_API_VERSION}`;
-            
-            const chatResponse = await axios.post(
-              url,
-              {
-                messages: [{ role: 'user', content: 'Hello' }],
-                max_tokens: 5
-              },
-              {
-                headers: {
-                  'Content-Type': 'application/json',
-                  'api-key': AZURE_OPENAI_API_KEY
-                }
-              }
-            );
-            
-            expect(chatResponse.status).toBe(200);
-            console.log('Successfully accessed Azure OpenAI chat completions endpoint');
-          } catch (chatError) {
-            console.error('Failed to access chat completions endpoint:', chatError);
-            if (axios.isAxiosError(chatError) && chatError.response) {
-              console.error(`Status: ${chatError.response.status}, Data:`, chatError.response.data);
-            }
-            
-            // Check if we're using the correct API version supported by Azure
-            console.log('Attempting with alternative API version...');
-            try {
-              const alternativeUrl = `${endpoint}/openai/deployments/${AZURE_OPENAI_API_DEPLOYMENT_NAME}/chat/completions?api-version=2023-05-15`;
-              
-              const altResponse = await axios.post(
-                alternativeUrl,
-                {
-                  messages: [{ role: 'user', content: 'Hello' }],
-                  max_tokens: 5
-                },
-                {
-                  headers: {
-                    'Content-Type': 'application/json',
-                    'api-key': AZURE_OPENAI_API_KEY
-                  }
-                }
-              );
-              
-              console.log('Successfully connected with alternative API version');
-              expect(altResponse.status).toBe(200);
-            } catch (altError) {
-              // Don't fail the test completely, as we've documented the exact error
-              console.error('Alternative API version also failed:', altError);
-              if (axios.isAxiosError(altError) && altError.response) {
-                console.error(`Status: ${altError.response.status}, Data:`, altError.response.data);
-              }
-              
-              // Test passes with warning if API is unreachable but we've documented the error
-              console.warn('⚠️ API is unreachable but test continues with documented error');
-            }
-          }
-        } else {
-          // Non-404 errors are real issues
-          console.error(`Failed with status ${error.response?.status}:`, error.response?.data);
-          throw error;
+        console.error('Error accessing Azure OpenAI API endpoint:', error.message);
+        if (error.response) {
+          console.error(`Status: ${error.response.status}, Data:`, error.response.data);
         }
+        
+        // Log additional diagnostic information
+        console.log('\nDiagnostic Information:');
+        console.log(`API Key (truncated): ${AZURE_OPENAI_API_KEY.substring(0, 5)}...`);
+        console.log(`Instance Name: ${AZURE_OPENAI_API_INSTANCE_NAME}`);
+        console.log(`Endpoint: ${endpoint}`);
+        console.log(`Deployment: ${AZURE_OPENAI_API_DEPLOYMENT_NAME}`);
+        console.log(`API Version: ${AZURE_OPENAI_API_VERSION}`);
+        
+        throw error;
       } else {
-        // Non-Axios errors are real issues
         console.error('Unknown error:', error);
         throw error;
       }

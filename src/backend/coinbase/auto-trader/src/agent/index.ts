@@ -2,21 +2,59 @@
 import { v4 as uuidv4 } from 'uuid';
 import { setupAgentKit } from './agentkit.js';
 import { setupLangChain, createTradingAnalysisChain } from './langchain.js';
+import { setupDirectGemini, GeminiAnalysisInput, GeminiTradeInput } from './direct-gemini.js';
 import { AgentKit } from '@coinbase/agentkit';
 import { RecallMemoryManager, MemoryManager, MemoryEntry } from '../services/recall-memory.js';
+import { MockTradingAgent } from './mock-trading-agent.js';
 
+// Agent interface for the auto-trader
 export interface Agent {
+  /**
+   * Get the current status of the agent
+   */
   getStatus(): Promise<any>;
+  
+  /**
+   * Analyze a portfolio given the current market data
+   * 
+   * @param portfolio - The portfolio to analyze
+   * @param marketData - The market data to use for analysis
+   */
   analyzePortfolio(portfolio: any, marketData: any): Promise<any>;
+  
+  /**
+   * Execute a trade
+   * 
+   * @param tradeType - The type of trade (swap, transfer, etc)
+   * @param fromAsset - The asset to trade from
+   * @param toAsset - The asset to trade to
+   * @param amount - The amount to trade
+   */
   executeTrade(tradeType: string, fromAsset: string, toAsset: string, amount: number): Promise<any>;
+  
+  /**
+   * Get the reasoning history for a given decision
+   * 
+   * @param decisionId - The ID of the decision
+   */
   getReasoningHistory(decisionId: string): Promise<any>;
+  
+  /**
+   * Get the memory manager instance
+   * Used for querying memory entries by type
+   */
+  getMemoryManager(): MemoryManager | null;
 }
+
+// LLM provider types
+export type LLMProvider = 'azure' | 'gemini' | 'mock';
 
 /**
  * Initialize the trading agent
+ * @param preferredLLM Optional preferred LLM provider (azure or gemini)
  * @returns Agent instance
  */
-export async function initAgent(): Promise<Agent> {
+export async function initAgent(preferredLLM: LLMProvider = 'gemini'): Promise<Agent> {
   try {
     // Get environment variables
     const cdpApiKeyName = process.env.COINBASE_CDP_KEY;
@@ -31,7 +69,7 @@ export async function initAgent(): Promise<Agent> {
       return new MockTradingAgent();
     }
     
-    console.log('Initializing 4g3n7 agent with AgentKit');
+    console.log(`Initializing 4g3n7 agent with AgentKit, preferred LLM: ${preferredLLM}`);
     
     // Set up AgentKit with Recall integration
     const agentkit = await setupAgentKit({
@@ -49,28 +87,70 @@ export async function initAgent(): Promise<Agent> {
       process.env.RECALL_NETWORK || 'testnet'
     );
     
-    // Initialize LangChain for AI analysis with error handling
-    let azureOpenAI;
-    let analysisChain;
-    try {
-      console.log('Setting up Azure OpenAI with LangChain');
-      azureOpenAI = setupLangChain({
-        azureOpenAIApiKey: process.env.AZURE_OPENAI_API_KEY || '',
-        azureOpenAIEndpoint: process.env.AZURE_OPENAI_ENDPOINT,
-        azureOpenAIApiDeploymentName: process.env.AZURE_OPENAI_API_DEPLOYMENT_NAME || 'gpt-4o',
-        azureOpenAIApiVersion: '2023-12-01-preview' // Force working version
-      });
-      
-      // Create analysis chain
-      analysisChain = createTradingAnalysisChain(azureOpenAI);
-      console.log('Azure OpenAI analysis chain set up successfully');
-      
-      return new TradingAgent(agentkit, analysisChain, memoryManager, false);
-    } catch (error) {
-      console.error('Failed to initialize Azure OpenAI:', error);
-      console.log('Creating TradingAgent with mock LLM capability');
-      return new TradingAgent(agentkit, null, memoryManager, true);
+    // Initialize LLM for AI analysis with error handling
+    let llmModel;
+    let analysisFunction;
+    let llmProvider: LLMProvider = 'mock';
+    
+    // Try preferred LLM first, then fall back to alternatives
+    if (preferredLLM === 'gemini' || (preferredLLM === 'azure' && llmModel === undefined)) {
+      try {
+        const geminiApiKey = process.env.GOOGLE_API_KEY;
+        if (geminiApiKey) {
+          console.log('Setting up Google Gemini directly without LangChain');
+          llmModel = setupDirectGemini({
+            apiKey: geminiApiKey,
+            model: process.env.GEMINI_MODEL || 'gemini-2.0-flash',
+            temperature: 0.7
+          });
+          
+          // Use the direct Gemini function for analysis
+          analysisFunction = llmModel.analyzePortfolio;
+          console.log('Google Gemini direct integration set up successfully');
+          llmProvider = 'gemini';
+        } else {
+          console.warn('Missing GOOGLE_API_KEY for Gemini integration');
+        }
+      } catch (error) {
+        console.error('Failed to initialize Google Gemini:', error);
+        llmModel = undefined;
+      }
     }
+    
+    // Try Azure OpenAI if Gemini failed or Azure was preferred but failed
+    if (preferredLLM === 'azure' || (preferredLLM === 'gemini' && llmModel === undefined)) {
+      try {
+        console.log('Setting up Azure OpenAI with LangChain');
+        const azureOpenAIKey = process.env.AZURE_OPENAI_API_KEY;
+        
+        if (azureOpenAIKey) {
+          llmModel = setupLangChain({
+            azureOpenAIApiKey: azureOpenAIKey,
+            azureOpenAIEndpoint: process.env.AZURE_OPENAI_ENDPOINT,
+            azureOpenAIApiDeploymentName: process.env.AZURE_OPENAI_API_DEPLOYMENT_NAME || 'gpt-4o',
+            azureOpenAIApiVersion: '2023-12-01-preview' // Force working version
+          });
+          
+          // Create analysis chain
+          analysisFunction = createTradingAnalysisChain(llmModel);
+          console.log('Azure OpenAI analysis chain set up successfully');
+          llmProvider = 'azure';
+        } else {
+          console.warn('Missing AZURE_OPENAI_API_KEY for Azure integration');
+        }
+      } catch (error) {
+        console.error('Failed to initialize Azure OpenAI:', error);
+        llmModel = undefined;
+      }
+    }
+    
+    // If both LLM providers failed, use mock LLM
+    if (!llmModel) {
+      console.log('All LLM providers failed, creating TradingAgent with mock LLM capability');
+      llmProvider = 'mock';
+    }
+    
+    return new TradingAgent(agentkit, analysisFunction, memoryManager, llmProvider);
   } catch (error) {
     console.error('Failed to initialize agent with AgentKit:', error);
     console.log('Falling back to mock trading agent...');
@@ -86,9 +166,9 @@ class TradingAgent implements Agent {
     private agentkit: AgentKit,
     private analysisChain: any,
     private memory: MemoryManager,
-    private useMockLLM: boolean = false
+    private llmProvider: LLMProvider = 'mock'
   ) {
-    console.log(`Trading agent initialized with ${useMockLLM ? 'mock LLM' : 'Azure OpenAI'} and Recall Memory`);
+    console.log(`Trading agent initialized with ${llmProvider} LLM and Recall Memory`);
   }
   
   /**
@@ -128,7 +208,7 @@ class TradingAgent implements Agent {
           },
           balance
         },
-        llmProvider: this.useMockLLM ? 'mock' : 'azure-openai',
+        llmProvider: this.llmProvider,
         memoryProvider: 'recall-network',
         availableActions: actions.length,
         timestamp: new Date().toISOString()
@@ -145,10 +225,10 @@ class TradingAgent implements Agent {
   
   /**
    * Generate a mock portfolio analysis based on provided data
-   * Used when Azure OpenAI is not available
+   * Used when Azure OpenAI or Gemini are not available
    */
   private generateMockAnalysis(portfolio: any, marketData: any): string {
-    console.log('Generating mock portfolio analysis as Azure OpenAI fallback');
+    console.log('Generating mock portfolio analysis as LLM fallback');
     
     // Extract portfolio allocation
     const totalValue = portfolio.totalValue || 
@@ -203,16 +283,20 @@ class TradingAgent implements Agent {
     const stablecoins = ['USDC', 'USDT', 'DAI', 'BUSD', 'TUSD'];
     const stablecoinPercentage = Object.entries(portfolio.assets)
       .filter(([symbol]) => stablecoins.includes(symbol))
-      .reduce((sum, [, data]: [string, any]) => sum + data.value, 0) / totalValue * 100;
+      .reduce((sum, [_, data]: [string, any]) => sum + data.value / totalValue * 100, 0);
     
     if (stablecoinPercentage < 20) {
-      recommendations += `4. **Increase stablecoin reserves**: Only ${stablecoinPercentage.toFixed(2)}% of your portfolio is in stablecoins. Consider increasing to 20-30% for better risk management.\n\n`;
+      recommendations += `4. **Increase stablecoin reserves**: Current stablecoin allocation is ${stablecoinPercentage.toFixed(2)}%. Consider increasing to at least 20% to have capital ready for opportunities.\n\n`;
     }
     
-    // Assemble the full analysis
-    return `# Portfolio Analysis
+    // Generate full analysis report
+    return `# Portfolio Analysis Report
+    
+## Portfolio Summary
 
-## Current Allocation
+Total Portfolio Value: $${totalValue.toFixed(2)}
+
+### Asset Allocation
 ${assetBreakdown}
 
 ## Market Conditions
@@ -221,13 +305,10 @@ ${marketConditions}
 ${recommendations}
 
 ## Risk Assessment
-Your portfolio has a ${stablecoinPercentage > 30 ? 'low' : stablecoinPercentage > 15 ? 'medium' : 'high'} risk profile based on your current allocation.
 
-## Action Plan
-1. Monitor market conditions closely over the next 24-48 hours
-2. Set stop-loss orders for volatile assets
-3. Consider rebalancing to achieve better risk-adjusted returns
-`;
+Portfolio risk level: ${stablecoinPercentage < 10 ? 'High' : stablecoinPercentage < 30 ? 'Medium' : 'Low'}
+
+This is an automated analysis based on current market conditions and portfolio allocation. Consider consulting with a financial advisor before making investment decisions.`;
   }
   
   /**
@@ -244,11 +325,11 @@ Your portfolio has a ${stablecoinPercentage > 30 ? 'low' : stablecoinPercentage 
       let analysis;
       
       // If we're using the mock LLM, generate mock analysis
-      if (this.useMockLLM) {
+      if (this.llmProvider === 'mock') {
         console.log('Using mock LLM for analysis');
         analysis = this.generateMockAnalysis(portfolio, marketData);
       } else {
-        console.log('Using Azure OpenAI for analysis');
+        console.log(`Using ${this.llmProvider} for analysis`);
         
         // Ensure we have a LangChain analysis chain
         if (!this.analysisChain) {
@@ -257,13 +338,21 @@ Your portfolio has a ${stablecoinPercentage > 30 ? 'low' : stablecoinPercentage 
         } else {
           try {
             // Run portfolio analysis through LLM
-            const response = await this.analysisChain.invoke({
+            const analysisInput = {
               portfolio: JSON.stringify(portfolio),
               marketData: JSON.stringify(marketData),
               date: new Date().toISOString().split('T')[0]
-            });
+            };
             
-            analysis = response;
+            // Call the appropriate analysis function depending on provider
+            if (this.llmProvider === 'gemini') {
+              // Direct Gemini implementation
+              analysis = await this.analysisChain(analysisInput as GeminiAnalysisInput);
+            } else {
+              // LangChain implementation for Azure
+              analysis = await this.analysisChain.invoke(analysisInput);
+            }
+            
             console.log('Analysis completed successfully');
           } catch (error) {
             console.error('Error running LLM analysis:', error);
@@ -273,304 +362,268 @@ Your portfolio has a ${stablecoinPercentage > 30 ? 'low' : stablecoinPercentage 
         }
       }
       
-      // Store reasoning in Recall Memory
-      try {
-        console.log('Storing analysis in Recall Memory');
-        // Create memory entry
-        const memoryEntry: MemoryEntry = {
-          id: decisionId,
-          timestamp: new Date().toISOString(),
-          content: analysis,
-          metadata: {
-            type: 'analysis',
-            tags: ['portfolio', 'reasoning']
-          }
-        };
-        
-        // Store in memory
-        await this.memory.store(memoryEntry);
-      } catch (memError) {
-        console.warn('Failed to store reasoning in memory system:', memError);
-      }
-      
-      return {
+      // Store analysis in memory with the decision ID
+      const memoryEntry: MemoryEntry = {
         id: decisionId,
+        timestamp: Date.now(),
+        type: 'analysis',
+        decision: {
+          portfolio: JSON.stringify(portfolio),
+          marketData: JSON.stringify(marketData),
+          analysis
+        }
+      };
+      
+      // Store in memory
+      await this.memory.storeMemory(memoryEntry);
+      
+      // Return the analysis with metadata
+      return {
+        decisionId,
         timestamp: new Date().toISOString(),
-        portfolio,
-        marketData,
         analysis,
-        actions: []
+        provider: this.llmProvider
       };
     } catch (error) {
       console.error('Error in portfolio analysis:', error);
-      throw error;
-    }
-  }
-  
-  /**
-   * Execute a trade using AgentKit
-   */
-  async executeTrade(tradeType: string, fromAsset: string, toAsset: string, amount: number): Promise<any> {
-    const decisionId = uuidv4().substring(0, 8);
-    
-    console.log(`Executing trade with decision ID: ${decisionId}`);
-    console.log(`Type: ${tradeType}, From: ${fromAsset}, To: ${toAsset}, Amount: ${amount}`);
-    
-    try {
-      // Construct trade details
-      const tradeDetails = {
-        id: decisionId,
-        timestamp: new Date().toISOString(),
-        type: tradeType,
-        fromAsset,
-        toAsset,
-        amount,
-        status: 'pending'
-      };
       
-      // Execute trade through AgentKit
-      let result;
-      try {
-        // Generate a confirmation of trade execution
-        // In a real implementation, this would use the AgentKit CDP to execute the trade
-        result = {
-          ...tradeDetails,
-          status: 'completed',
-          executionPrice: Math.random() * 1000, // Mock execution price
-          txHash: `0x${Math.random().toString(16).substring(2)}`, // Mock transaction hash
-          completion: new Date().toISOString()
-        };
-      } catch (tradeError) {
-        console.error('Error executing trade:', tradeError);
-        result = {
-          ...tradeDetails,
-          status: 'failed',
-          error: tradeError instanceof Error ? tradeError.message : String(tradeError)
-        };
-      }
-      
-      // Store reasoning in Recall Memory
-      try {
-        console.log('Storing trade execution in Recall Memory');
-        // Create memory entry
-        const memoryEntry: MemoryEntry = {
-          id: decisionId,
-          timestamp: new Date().toISOString(),
-          content: result,
-          metadata: {
-            type: 'trade',
-            tags: ['execution', 'transaction']
-          }
-        };
-        
-        // Store in memory
-        await this.memory.store(memoryEntry);
-      } catch (memError) {
-        console.warn('Failed to store trade in memory system:', memError);
-      }
-      
-      return result;
-    } catch (error) {
-      console.error('Error in trade execution:', error);
-      throw error;
-    }
-  }
-  
-  /**
-   * Get reasoning history from Recall Memory
-   * @param decisionId The ID of the decision to retrieve
-   * @returns The reasoning record or null if not found
-   */
-  async getReasoningHistory(decisionId: string): Promise<any> {
-    console.log(`Retrieving reasoning history for decision ID: ${decisionId}`);
-    
-    try {
-      // First try to get the decision from Recall Memory
-      const analysisMemory = await this.memory.retrieve(decisionId, 'analysis');
-      
-      if (analysisMemory) {
-        console.log('Found analysis memory for decision');
-        return {
-          id: decisionId,
-          type: 'analysis',
-          timestamp: analysisMemory.timestamp,
-          content: analysisMemory.content
-        };
-      }
-      
-      // If not found as analysis, try to find it as a trade
-      const tradeMemory = await this.memory.retrieve(decisionId, 'trade');
-      
-      if (tradeMemory) {
-        console.log('Found trade memory for decision');
-        return {
-          id: decisionId,
-          type: 'trade',
-          timestamp: tradeMemory.timestamp,
-          content: tradeMemory.content
-        };
-      }
-      
-      console.log(`No memory found for decision ID: ${decisionId}`);
-      return null;
-    } catch (error) {
-      console.error('Error retrieving reasoning history:', error);
-      return null;
-    }
-  }
-
-  // Create an action function for a specific purpose
-  private createAction(name: string, description: string, callback: Function) {
-    return {
-      name,
-      description,
-      parameters: {},
-      execute: async (action: Record<string, any>) => {
-        return await callback(action);
-      }
-    };
-  }
-
-  // Set up custom actions for the agent
-  private setupCustomActions() {
-    // Agent status action
-    const getStatusAction = this.createAction(
-      'get_agent_status',
-      'Get the current status of the trading agent',
-      async (action: Record<string, any>) => {
-        return {
-          status: 'active',
-          useMockLLM: this.useMockLLM,
-          timestamp: new Date().toISOString()
-        };
-      }
-    );
-  }
-}
-
-/**
- * Mock Trading agent implementation for testing
- */
-class MockTradingAgent implements Agent {
-  private decisions: Record<string, any> = {};
-  
-  constructor() {
-    console.log('Mock trading agent initialized successfully');
-  }
-  
-  /**
-   * Get agent status
-   */
-  async getStatus(): Promise<any> {
-    return {
-      status: 'operational (mock)',
-      wallet: {
-        address: '0xMockAddress123456789abcdef',
-        network: {
-          protocolFamily: 'evm',
-          chainId: '84532',
-          networkId: 'base-sepolia'
-        },
-        balance: '1000000000000000000' // 1 ETH
-      },
-      timestamp: new Date().toISOString()
-    };
-  }
-  
-  /**
-   * Analyze portfolio using mock LLM
-   */
-  async analyzePortfolio(portfolio: any, marketData: any): Promise<any> {
-    const decisionId = uuidv4();
-    
-    // Create mock analysis
-    const analysis = {
-      decisionId,
-      recommendations: `
-Based on the portfolio and market data analysis, here are my recommendations:
-
-1. **Current Portfolio Assessment**:
-   - Diversification: Your portfolio is currently ${Object.keys(portfolio.assets || {}).length} assets.
-   - Risk Level: Medium risk exposure.
-
-2. **Market Analysis**:
-   - Overall market sentiment appears bullish in the short term.
-
-3. **Recommendations**:
-   - **Maintain ETH position**: The positive momentum suggests holding your current ETH allocation.
-   - **Diversify with BTC**: Consider allocating 10-15% of portfolio to BTC given its stability.
-   - **Maintain USDC reserve**: Keep 30-35% in USDC to capitalize on potential buying opportunities.
-
-4. **Action Plan**:
-   - Convert 10% of USDC position to BTC at the current price.
-   - Set stop-loss orders for ETH position at 10% below current price.
-   - Review portfolio again in 7 days to assess strategy effectiveness.
-`,
-      timestamp: new Date().toISOString()
-    };
-    
-    // Store for future reference
-    this.decisions[decisionId] = {
-      type: 'portfolio_analysis',
-      portfolio,
-      marketData,
-      analysis: analysis.recommendations,
-      timestamp: analysis.timestamp
-    };
-    
-    return analysis;
-  }
-  
-  /**
-   * Execute a mock trade
-   */
-  async executeTrade(tradeType: string, fromAsset: string, toAsset: string, amount: number): Promise<any> {
-    const decisionId = uuidv4();
-    
-    // Create mock trade
-    const trade = {
-      decisionId,
-      tradeId: `trade-${Date.now()}`,
-      status: 'completed',
-      details: {
-        fromAsset,
-        toAsset,
-        amount,
-        effectivePrice: 2500, // mock price
-        timestamp: new Date().toISOString(),
-        txHash: `0xMockTxHash${Date.now().toString(16)}`
-      }
-    };
-    
-    // Store for future reference
-    this.decisions[decisionId] = {
-      type: 'trade_execution',
-      tradeType,
-      fromAsset,
-      toAsset,
-      amount,
-      result: trade,
-      timestamp: new Date().toISOString()
-    };
-    
-    return trade;
-  }
-  
-  /**
-   * Get mock reasoning history
-   */
-  async getReasoningHistory(decisionId: string): Promise<any> {
-    if (this.decisions[decisionId]) {
+      // Return error information
       return {
         decisionId,
-        reasoning: JSON.stringify(this.decisions[decisionId], null, 2),
-        timestamp: this.decisions[decisionId].timestamp
+        timestamp: new Date().toISOString(),
+        error: error instanceof Error ? error.message : String(error),
+        provider: this.llmProvider
       };
     }
+  }
+  
+  /**
+   * Execute a trade with AI analysis
+   */
+  async executeTrade(tradeType: string, fromAsset: string, toAsset: string, amount: number): Promise<any> {
+    const tradeId = uuidv4().substring(0, 8);
     
-    return {
-      error: 'Not found',
-      message: `No reasoning found for ID: ${decisionId}`
-    };
+    console.log(`Starting trade execution with trade ID: ${tradeId}`);
+    console.log(`Trade details: ${tradeType} ${amount} ${fromAsset} to ${toAsset}`);
+    
+    try {
+      // Get current market data
+      const marketData = {
+        // Mock market data for now, would be retrieved from an API in production
+        [fromAsset]: {
+          price: 100.0,
+          change24h: -2.5
+        },
+        [toAsset]: {
+          price: 1.0,
+          change24h: 0.1
+        }
+      };
+      
+      // Analyze the trade
+      const tradeAnalysis = await this.analyzeTradeDecision(
+        tradeId, 
+        tradeType, 
+        fromAsset, 
+        toAsset, 
+        amount, 
+        marketData
+      );
+      
+      // Execute the trade using AgentKit actions
+      // This is a simplification, actual implementation would handle approval, gas estimation, etc.
+      let executionResult;
+      
+      try {
+        // Find the appropriate action from AgentKit
+        const actions = this.agentkit.getActions();
+        const swapAction = actions.find(action => action.name === 'swap_tokens');
+        
+        if (!swapAction) {
+          throw new Error('Swap action not available');
+        }
+        
+        // Execute the swap
+        executionResult = await swapAction.invoke({
+          fromToken: fromAsset,
+          toToken: toAsset,
+          amount: amount.toString()
+        });
+        
+        console.log('Trade executed successfully:', executionResult);
+      } catch (executionError) {
+        console.error('Error executing trade:', executionError);
+        executionResult = {
+          status: 'failed',
+          error: executionError instanceof Error ? executionError.message : String(executionError)
+        };
+      }
+      
+      // Store the complete trade data in memory
+      const memoryEntry: MemoryEntry = {
+        id: tradeId,
+        timestamp: Date.now(),
+        type: 'trade',
+        decision: {
+          tradeType,
+          fromAsset,
+          toAsset,
+          amount,
+          marketData: JSON.stringify(marketData),
+          analysis: tradeAnalysis,
+          result: executionResult
+        }
+      };
+      
+      // Store in memory
+      await this.memory.storeMemory(memoryEntry);
+      
+      // Return execution result with metadata
+      return {
+        tradeId,
+        timestamp: new Date().toISOString(),
+        tradeDetails: {
+          tradeType,
+          fromAsset,
+          toAsset,
+          amount
+        },
+        analysis: tradeAnalysis,
+        execution: executionResult
+      };
+    } catch (error) {
+      console.error('Error in trade execution:', error);
+      
+      // Return error information
+      return {
+        tradeId,
+        timestamp: new Date().toISOString(),
+        error: error instanceof Error ? error.message : String(error),
+        tradeDetails: {
+          tradeType,
+          fromAsset,
+          toAsset,
+          amount
+        }
+      };
+    }
+  }
+  
+  /**
+   * Analyze a trade decision using the LLM
+   */
+  private async analyzeTradeDecision(
+    tradeId: string, 
+    tradeType: string, 
+    fromAsset: string, 
+    toAsset: string, 
+    amount: number, 
+    marketData: any
+  ): Promise<string> {
+    // If we're using the mock LLM, return a mock analysis
+    if (this.llmProvider === 'mock' || !this.analysisChain) {
+      return this.generateMockTradeAnalysis(tradeType, fromAsset, toAsset, amount, marketData);
+    }
+    
+    // Otherwise, use the LLM for analysis
+    try {
+      const llmInput = {
+        tradeType,
+        fromAsset,
+        toAsset,
+        fromAmount: amount,
+        marketData: JSON.stringify(marketData),
+        date: new Date().toISOString().split('T')[0]
+      };
+      
+      let analysis;
+      
+      if (this.llmProvider === 'gemini') {
+        // For Gemini, we use the direct implementation
+        analysis = await this.analysisChain(llmInput as GeminiTradeInput);
+      } else {
+        // For Azure, use the LangChain analysis chain
+        analysis = await this.analysisChain.invoke(llmInput);
+      }
+      
+      return analysis;
+    } catch (error) {
+      console.error('Error analyzing trade with LLM:', error);
+      return this.generateMockTradeAnalysis(tradeType, fromAsset, toAsset, amount, marketData);
+    }
+  }
+  
+  /**
+   * Generate a mock trade analysis when LLM is not available
+   */
+  private generateMockTradeAnalysis(
+    tradeType: string, 
+    fromAsset: string, 
+    toAsset: string, 
+    amount: number, 
+    marketData: any
+  ): string {
+    return `# Trade Analysis
+    
+## Trade Details
+- Type: ${tradeType}
+- From: ${amount} ${fromAsset}
+- To: ${toAsset}
+
+## Market Conditions
+- ${fromAsset} price: $${marketData[fromAsset]?.price || 'unknown'} (24h change: ${marketData[fromAsset]?.change24h || 'unknown'}%)
+- ${toAsset} price: $${marketData[toAsset]?.price || 'unknown'} (24h change: ${marketData[toAsset]?.change24h || 'unknown'}%)
+
+## Analysis
+This is a mock analysis generated because the AI analysis system is not available.
+
+The trade appears to be ${marketData[fromAsset]?.change24h < 0 && marketData[toAsset]?.change24h > 0 ? 'favorable' : 'risky'} based on simple heuristics:
+- ${fromAsset} is ${marketData[fromAsset]?.change24h < 0 ? 'declining' : 'rising'} in value
+- ${toAsset} is ${marketData[toAsset]?.change24h > 0 ? 'gaining' : 'losing'} value
+
+## Recommendation
+Proceed with caution. This is an automated fallback analysis and does not represent actual market insights.`;
+  }
+  
+  /**
+   * Get the history of reasoning for a specific decision
+   */
+  async getReasoningHistory(decisionId: string): Promise<any> {
+    try {
+      // Retrieve the memory entry
+      const entry = await this.memory.getMemory(decisionId);
+      
+      if (!entry) {
+        return {
+          status: 'not_found',
+          message: `No decision found with ID: ${decisionId}`
+        };
+      }
+      
+      // Format and return the entry
+      return {
+        decisionId: entry.id,
+        timestamp: new Date(entry.timestamp).toISOString(),
+        type: entry.type,
+        reasoning: entry.decision
+      };
+    } catch (error) {
+      console.error('Error retrieving reasoning history:', error);
+      
+      return {
+        status: 'error',
+        message: error instanceof Error ? error.message : String(error)
+      };
+    }
+  }
+  
+  /**
+   * Get the memory manager instance
+   */
+  getMemoryManager(): MemoryManager {
+    return this.memory;
   }
 }
+
+// Re-export the MockTradingAgent for convenience
+export { MockTradingAgent };

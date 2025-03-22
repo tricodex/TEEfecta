@@ -30,25 +30,21 @@ async function main() {
       process.env.RECALL_NETWORK || 'testnet'
     );
 
-    // Create a test memory entry
-    const testEntry: MemoryEntry = {
-      id: `test-${Date.now()}`,
-      timestamp: new Date().toISOString(),
-      content: {
-        test: 'Testing Recall Network connection',
-        timestamp: Date.now()
-      },
-      metadata: {
-        type: 'test',
-        tags: ['verification', 'test']
-      }
+    // Create a test content and metadata
+    const testContent = {
+      test: 'Testing Recall Network connection',
+      timestamp: Date.now()
+    };
+    
+    const testMetadata = {
+      tags: ['verification', 'test']
     };
 
     // Store the test entry
     console.log('\nStoring test memory entry...');
-    console.log(`Entry ID: ${testEntry.id}`);
-    const storedId = await memoryManager.store(testEntry);
-    console.log(`Successfully stored memory entry with ID: ${storedId}`);
+    const testType = 'test';
+    const storedEntry = await memoryManager.store(testType, testContent, testMetadata);
+    console.log(`Successfully stored memory entry with ID: ${storedEntry.id}`);
 
     // Add a delay to allow for transaction processing
     console.log('\nWaiting for 5 seconds to allow for transaction confirmation...');
@@ -56,7 +52,7 @@ async function main() {
 
     // Retrieve the test entry
     console.log('\nRetrieving test memory entry...');
-    const retrievedEntry = await memoryManager.retrieve(storedId, 'test');
+    const retrievedEntry = await memoryManager.retrieve(storedEntry.id);
     
     if (retrievedEntry) {
       console.log('Successfully retrieved memory entry:');
@@ -67,9 +63,14 @@ async function main() {
       console.warn('Try running this script again in a few minutes to verify retrieval.');
     }
 
-    // List recent entries
-    console.log('\nListing recent test entries...');
-    const recentEntries = await memoryManager.list('test', 5);
+    // Query recent entries
+    console.log('\nQuerying recent test entries...');
+    const recentEntries = await memoryManager.query(testType, (entry) => {
+      const timestamp = new Date(entry.timestamp).getTime();
+      const fiveMinutesAgo = Date.now() - 5 * 60 * 1000;
+      return timestamp > fiveMinutesAgo;
+    });
+    
     console.log(`Found ${recentEntries.length} recent test entries:`);
     
     recentEntries.forEach((entry: MemoryEntry, index: number) => {

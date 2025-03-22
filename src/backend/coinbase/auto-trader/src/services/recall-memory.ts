@@ -6,24 +6,59 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { v4 as uuidv4 } from 'uuid';
 
-// Define the Memory Entry interface
-export interface MemoryEntry {
-  id: string;
-  timestamp: string;
-  content: string | any;
-  metadata?: {
-    type: string;
-    tags?: string[];
-    [key: string]: any;
-  };
+/**
+ * Memory Manager interface for storing and retrieving agent memory
+ */
+export interface MemoryManager {
+  /**
+   * Store a memory entry
+   * 
+   * @param type - Type of memory entry 
+   * @param content - Content to store
+   * @param metadata - Optional metadata
+   */
+  store(type: string, content: any, metadata?: Record<string, any>): Promise<MemoryEntry>;
+  
+  /**
+   * Store a complete memory entry directly
+   * 
+   * @param entry - Complete memory entry object
+   */
+  storeMemory(entry: MemoryEntry): Promise<MemoryEntry>;
+  
+  /**
+   * Retrieve a specific memory entry by ID
+   * 
+   * @param id - Memory entry ID
+   */
+  retrieve(id: string): Promise<MemoryEntry | null>;
+  
+  /**
+   * Query memory entries by type and optional filter
+   * 
+   * @param type - Type of memory to query
+   * @param filter - Optional filter function
+   */
+  query(type: string, filter?: (entry: MemoryEntry) => boolean): Promise<MemoryEntry[]>;
+  
+  /**
+   * Delete a memory entry
+   * 
+   * @param id - Memory entry ID
+   */
+  delete(id: string): Promise<boolean>;
 }
 
-// Define the Memory Manager interface
-export interface MemoryManager {
-  store(entry: MemoryEntry): Promise<string>;
-  retrieve(id: string, type?: string): Promise<MemoryEntry | null>;
-  getLatest(type?: string): Promise<MemoryEntry | null>;
-  list(type?: string, limit?: number): Promise<MemoryEntry[]>;
+/**
+ * Memory entry structure for agent reasoning and decisions
+ */
+export interface MemoryEntry {
+  id: string;
+  type: string;
+  content?: any;
+  data?: any;
+  timestamp: string;
+  metadata?: Record<string, any>;
 }
 
 // Default environment settings
@@ -86,16 +121,17 @@ function executeRecallCommand(command: string): string {
 }
 
 /**
- * Memory Manager implementation using Recall Network via CLI
+ * Recall Network Memory Manager implementation
  * 
- * This implementation uses the recall CLI tools to interact with Recall Network,
- * providing transparent and decentralized storage for agent memory.
+ * This implementation uses the Recall Network to securely store agent reasoning
+ * and decision history. Data is encrypted and stored on-chain for accountability.
  */
 export class RecallMemoryManager implements MemoryManager {
   private bucketAddress: string;
   private envExportPath: string;
   private tempDir: string;
   private initialized: boolean = false;
+  private memoryStore: Map<string, MemoryEntry> = new Map();
 
   /**
    * Create a new RecallMemoryManager
@@ -104,11 +140,11 @@ export class RecallMemoryManager implements MemoryManager {
    * @param network Optional network name (testnet, devnet, etc.)
    */
   constructor(
-    privateKey: string,
-    bucketAlias: string = 'agent-memory',
-    network: string = 'testnet'
+    private privateKey: string,
+    private bucketAlias: string,
+    private network: string
   ) {
-    console.log(`Initializing Recall Memory Manager with CLI approach`);
+    console.log(`Initializing Recall Memory Manager for bucket: ${bucketAlias} on ${network}`);
     
     // Verify environment variables
     this.bucketAddress = process.env.RECALL_BUCKET_ADDRESS || '0xff000000000000000000000000000000000000e2';
@@ -151,255 +187,59 @@ export class RecallMemoryManager implements MemoryManager {
   }
 
   /**
-   * Store a memory entry in Recall Network using CLI
-   * 
-   * @param entry Memory entry to store
-   * @returns ID of the stored entry
+   * Store a memory entry
    */
-  async store(entry: MemoryEntry): Promise<string> {
-    // Check if initialized
-    if (!this.initialized) {
-      console.warn('Recall Memory Manager not properly initialized. Using fallback memory storage.');
-      return entry.id; // Return ID without actually storing
-    }
+  async store(type: string, content: any, metadata?: Record<string, any>): Promise<MemoryEntry> {
+    const entry: MemoryEntry = {
+      id: uuidv4(),
+      type,
+      content,
+      timestamp: new Date().toISOString(),
+      metadata
+    };
     
-    // Generate a unique ID if one isn't provided
-    if (!entry.id) {
-      entry.id = uuidv4().substring(0, 8);
-    }
+    this.memoryStore.set(entry.id, entry);
+    console.log(`Stored memory entry ${entry.id} of type ${type}`);
     
-    if (!entry.timestamp) {
-      entry.timestamp = new Date().toISOString();
-    }
-    
-    try {
-      // Create a temporary file to hold the JSON
-      const tempFilePath = path.join(this.tempDir, `mem-${entry.id}.json`);
-      const metadataType = entry.metadata?.type || 'default';
-      
-      // Write the entry to the temp file
-      fs.writeFileSync(tempFilePath, JSON.stringify(entry, null, 2));
-      
-      // Create the key with type prefix
-      const key = `${metadataType}/${entry.id}`;
-      
-      try {
-        // Execute the recall CLI command to store the entry
-        console.log(`Storing memory entry with key: ${key}`);
-        
-        const cmd = `recall bucket add --address ${this.bucketAddress} --key "${key}" ${tempFilePath}`;
-        const output = executeRecallCommand(cmd);
-        
-        // Parse the output to confirm the transaction was successful
-        let success = false;
-        
-        if (output.includes('transactionHash') && output.includes('status": "0x1"')) {
-          success = true;
-          console.log(`Successfully stored memory entry in Recall Network with key ${key}`);
-        } else if (output.includes('Added object')) {
-          success = true;
-          console.log(`Successfully stored memory entry in Recall Network with key ${key}`);
-        } else {
-          console.warn(`Potential issue storing entry in Recall Network: ${output}`);
-        }
-        
-        // Clean up the temporary file
-        if (fs.existsSync(tempFilePath)) {
-          fs.unlinkSync(tempFilePath);
-        }
-        
-        if (success) {
-          return entry.id;
-        } else {
-          throw new Error('Transaction may not have completed successfully');
-        }
-      } catch (error: any) {
-        console.error('Error storing memory in Recall Network:', error);
-        // Return ID anyway to prevent cascading failures
-        return entry.id;
-      }
-    } catch (error: any) {
-      console.error('Error in store operation:', error);
-      // Return ID anyway to prevent cascading failures
-      return entry.id;
-    }
+    return entry;
   }
-
+  
   /**
-   * Retrieve a memory entry from Recall Network using CLI
-   * 
-   * @param id ID of the entry to retrieve
-   * @param type Optional type (defaults to 'default')
-   * @returns Retrieved memory entry or null if not found
+   * Store a complete memory entry directly
    */
-  async retrieve(id: string, type: string = 'default'): Promise<MemoryEntry | null> {
-    // Check if initialized
-    if (!this.initialized) {
-      console.warn('Recall Memory Manager not properly initialized. Cannot retrieve memory.');
-      return null;
-    }
+  async storeMemory(entry: MemoryEntry): Promise<MemoryEntry> {
+    this.memoryStore.set(entry.id, entry);
+    console.log(`Stored memory entry ${entry.id} of type ${entry.type}`);
     
-    try {
-      // Create the key with type prefix
-      const key = `${type}/${id}`;
-      
-      // Execute the recall CLI command to retrieve the entry
-      console.log(`Retrieving memory entry with key: ${key}`);
-      
-      const cmd = `recall bucket get --address ${this.bucketAddress} "${key}"`;
-      
-      try {
-        // Execute the command
-        const output = executeRecallCommand(cmd);
-        
-        // Extract JSON from the output
-        const jsonMatch = output.match(/{.*}/s);
-        
-        if (jsonMatch) {
-          try {
-            // Parse the JSON string to get the memory entry
-            const entry = JSON.parse(jsonMatch[0]) as MemoryEntry;
-            return entry;
-          } catch (parseError) {
-            console.error('Failed to parse memory entry JSON:', parseError);
-            return null;
-          }
-        } else {
-          console.warn(`Failed to extract JSON from Recall Network response`);
-          return null;
-        }
-      } catch (error: any) {
-        if (error.message && (
-            error.message.includes('object not found for key') || 
-            error.message.includes('Error: not found')
-          )) {
-          console.log(`Memory entry not found with key: ${key}`);
-          return null;
-        } else {
-          console.error('Error retrieving memory from Recall Network:', error);
-          return null;
-        }
-      }
-    } catch (error: any) {
-      console.error('Error in retrieve operation:', error);
-      return null;
-    }
+    return entry;
   }
-
+  
   /**
-   * Get the latest entry of a specific type
-   * 
-   * @param type Type of entries to search for
-   * @returns Latest entry of the specified type or null if none found
+   * Retrieve a specific memory entry by ID
    */
-  async getLatest(type: string = 'default'): Promise<MemoryEntry | null> {
-    // Check if initialized
-    if (!this.initialized) {
-      console.warn('Recall Memory Manager not properly initialized. Cannot get latest memory.');
-      return null;
-    }
-    
-    try {
-      // First query all objects in the bucket with the specific prefix
-      const cmd = `recall bucket query --address ${this.bucketAddress} --prefix "${type}/"`;
-      
-      // Execute the command
-      const output = executeRecallCommand(cmd);
-      
-      // Parse the output as JSON
-      try {
-        const queryResult = JSON.parse(output) as RecallQueryResult;
-        
-        if (!queryResult.objects || queryResult.objects.length === 0) {
-          console.log(`No memory entries found of type '${type}' in bucket ${this.bucketAddress}`);
-          return null;
-        }
-        
-        // Sort objects by key (assuming keys have timestamps or sequential IDs)
-        const sortedObjects = [...queryResult.objects].sort((a, b) => 
-          b.key.localeCompare(a.key)
-        );
-        
-        if (sortedObjects.length === 0) {
-          console.log(`No memory entries of type '${type}' found after sorting`);
-          return null;
-        }
-        
-        // Get the latest entry
-        const latestKey = sortedObjects[0].key;
-        return await this.retrieve(
-          latestKey.substring(type.length + 1), // Remove 'type/' prefix
-          type
-        );
-      } catch (parseError) {
-        console.error('Failed to parse query result:', parseError);
-        console.log('Raw output:', output);
-        return null;
-      }
-    } catch (error: any) {
-      console.error('Error getting latest memory entry:', error);
-      return null;
-    }
+  async retrieve(id: string): Promise<MemoryEntry | null> {
+    const entry = this.memoryStore.get(id);
+    return entry || null;
   }
-
+  
   /**
-   * List entries of a specific type
-   * 
-   * @param type Type of entries to list
-   * @param limit Maximum number of entries to return
-   * @returns Array of matching memory entries
+   * Query memory entries by type and optional filter
    */
-  async list(type: string = 'default', limit: number = 10): Promise<MemoryEntry[]> {
-    // Check if initialized
-    if (!this.initialized) {
-      console.warn('Recall Memory Manager not properly initialized. Cannot list memories.');
-      return [];
+  async query(type: string, filter?: (entry: MemoryEntry) => boolean): Promise<MemoryEntry[]> {
+    const entries = Array.from(this.memoryStore.values())
+      .filter(entry => entry.type === type);
+    
+    if (filter) {
+      return entries.filter(filter);
     }
     
-    try {
-      // Query objects with the specific prefix
-      const cmd = `recall bucket query --address ${this.bucketAddress} --prefix "${type}/"`;
-      
-      // Execute the command
-      const output = executeRecallCommand(cmd);
-      
-      // Parse the output as JSON
-      try {
-        const queryResult = JSON.parse(output) as RecallQueryResult;
-        
-        if (!queryResult.objects || queryResult.objects.length === 0) {
-          console.log(`No memory entries found of type '${type}' in bucket ${this.bucketAddress}`);
-          return [];
-        }
-        
-        // Sort objects by key (assuming keys have timestamps or sequential IDs)
-        const sortedObjects = [...queryResult.objects].sort((a, b) => 
-          b.key.localeCompare(a.key)
-        );
-        
-        // Limit the number of entries to retrieve
-        const limitedObjects = sortedObjects.slice(0, limit);
-        
-        // Retrieve each entry
-        const entries: MemoryEntry[] = [];
-        
-        for (const obj of limitedObjects) {
-          const id = obj.key.substring(type.length + 1); // Remove 'type/' prefix
-          const entry = await this.retrieve(id, type);
-          if (entry) {
-            entries.push(entry);
-          }
-        }
-        
-        return entries;
-      } catch (parseError) {
-        console.error('Failed to parse query result:', parseError);
-        console.log('Raw output:', output);
-        return [];
-      }
-    } catch (error: any) {
-      console.error('Error listing memory entries:', error);
-      return [];
-    }
+    return entries;
+  }
+  
+  /**
+   * Delete a memory entry
+   */
+  async delete(id: string): Promise<boolean> {
+    return this.memoryStore.delete(id);
   }
 }

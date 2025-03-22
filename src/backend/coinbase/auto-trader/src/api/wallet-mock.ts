@@ -1,7 +1,7 @@
 // Wallet Mock Implementation for Testing
 import { v4 as uuidv4 } from 'uuid';
 
-// Interface for wallet operations
+// Extended interface for wallet operations to match AgentKit's expectations
 export interface WalletProvider {
   getAddress(): string;
   getBalance(): Promise<string>;
@@ -9,6 +9,13 @@ export interface WalletProvider {
   signMessage(message: string): Promise<string>;
   signTransaction(tx: any): Promise<string>;
   sendTransaction(tx: any): Promise<{ transactionHash: string }>;
+  
+  // Additional methods needed for AgentKit
+  execute?: (params: any) => Promise<any>;
+  trackInitialization?: (status: string) => void;
+  getNetwork?: () => Promise<{ id: string, name: string }>;
+  getName?: () => string;
+  nativeTransfer?: (to: string, amount: string) => Promise<any>;
 }
 
 /**
@@ -88,11 +95,81 @@ export class MockWalletProvider implements WalletProvider {
     
     return { transactionHash: hash };
   }
+  
+  /**
+   * Execute a wallet action (mock implementation for AgentKit compatibility)
+   */
+  async execute(params: any): Promise<any> {
+    console.log(`[MOCK] Executing action: ${JSON.stringify(params)}`);
+    
+    // Mock different actions based on actionId
+    if (params.actionId === 'get_wallet_details') {
+      return {
+        address: this.address,
+        balance: this.balance,
+        chainId: this.chainId,
+        network: 'testnet'
+      };
+    }
+    
+    if (params.actionId === 'transfer') {
+      console.log(`[MOCK] Transferring ${params.params.amount} to ${params.params.to}`);
+      return {
+        success: true,
+        transactionHash: `0x${Array(64).fill(0).map(() => Math.floor(Math.random() * 16).toString(16)).join('')}`,
+        status: 'completed'
+      };
+    }
+    
+    // Default mock response
+    return {
+      success: true,
+      mockResponse: true,
+      params
+    };
+  }
+  
+  /**
+   * Track initialization (mock implementation for AgentKit compatibility)
+   */
+  trackInitialization(status: string): void {
+    console.log(`[MOCK] Tracking initialization: ${status}`);
+  }
+  
+  /**
+   * Get network (mock implementation for AgentKit compatibility)
+   */
+  async getNetwork(): Promise<{ id: string, name: string }> {
+    return {
+      id: this.chainId,
+      name: 'Base Sepolia'
+    };
+  }
+  
+  /**
+   * Get name (mock implementation for AgentKit compatibility)
+   */
+  getName(): string {
+    return 'MockWalletProvider';
+  }
+  
+  /**
+   * Native transfer (mock implementation for AgentKit compatibility)
+   */
+  async nativeTransfer(to: string, amount: string): Promise<any> {
+    console.log(`[MOCK] Native transfer: ${amount} to ${to}`);
+    return {
+      success: true,
+      transactionHash: `0x${Array(64).fill(0).map(() => Math.floor(Math.random() * 16).toString(16)).join('')}`,
+      status: 'completed'
+    };
+  }
 }
 
 /**
  * Factory function to create a mock wallet provider
+ * @param address Optional wallet address
  */
-export function createMockWalletProvider(): WalletProvider {
-  return new MockWalletProvider();
+export function createMockWalletProvider(address?: string): WalletProvider {
+  return new MockWalletProvider(address);
 } 

@@ -6,6 +6,11 @@ import {
   erc20ActionProvider,
   cdpApiActionProvider,
   cdpWalletActionProvider,
+  wethActionProvider,
+  defillamaActionProvider,
+  compoundActionProvider,
+  pythActionProvider,
+  morphoActionProvider
 } from '@coinbase/agentkit';
 
 export interface AgentKitConfig {
@@ -34,6 +39,11 @@ export async function setupAgentKit(config: AgentKitConfig) {
     actionProviders: [
       walletActionProvider(),
       erc20ActionProvider(),
+      wethActionProvider(),
+      pythActionProvider(),
+      defillamaActionProvider(),
+      compoundActionProvider(),
+      morphoActionProvider(),
       cdpApiActionProvider({
         apiKeyName: config.cdpApiKeyName,
         apiKeyPrivateKey: config.cdpApiKeyPrivateKey
@@ -45,6 +55,6 @@ export async function setupAgentKit(config: AgentKitConfig) {
     ]
   });
   
-  console.log('AgentKit initialized successfully');
+  console.log('AgentKit initialized successfully with extended trading capabilities');
   return agentkit;
 }

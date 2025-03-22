@@ -95,3 +95,4 @@ notes.md
 .env.azure
 
 .cursor/
+.env.gemini

@@ -48,10 +48,6 @@ export function setupLangChain(config: AzureLangChainConfig) {
     console.log(`Using deployment name: ${DEPLOYMENT}`);
     console.log(`Using API version: ${API_VERSION} (forced)`);
     
-    // The correct URL format for chat completions must include /chat/completions in the path
-    const baseURL = `${ENDPOINT}/openai/deployments/${DEPLOYMENT}`;
-    console.log(`Base URL: ${baseURL}`);
-    
     // Initialize the LLM using the standard ChatOpenAI with Azure configuration
     // Matching exactly the settings from our successful curl request
     const llm = new ChatOpenAI({
@@ -92,7 +88,8 @@ export function setupLangChain(config: AzureLangChainConfig) {
                   role: "user",
                   content: "What is 1+1?"
                 }
-              ]
+              ],
+              max_tokens: 5
             })
           });
           
@@ -104,6 +101,10 @@ export function setupLangChain(config: AzureLangChainConfig) {
             console.log("Direct API call succeeded:");
             console.log(data.choices[0].message.content);
             console.log("This indicates an issue with LangChain integration, not the API itself.");
+            
+            // If direct call works but LangChain doesn't, we'll proceed anyway since we know the API works
+            // The LangChain functions are still returned, and fallback mechanisms exist
+            console.log("API is confirmed working. Returning LLM instance even though LangChain test failed.");
           } else {
             const errorText = await response.text();
             console.error(`Direct API call failed with status ${status}:`);
@@ -179,10 +180,10 @@ export function createTradingAnalysisChain(llm: ChatOpenAI) {
   // Create the chain with proper typing
   return RunnableSequence.from([
     {
-      prompt: promptTemplate
+      prompt: async (input: any) => promptTemplate.format(input)
     },
     {
-      completion: llm
+      completion: async (formattedPrompt: string) => llm.invoke(formattedPrompt)
     },
     parser
   ]);

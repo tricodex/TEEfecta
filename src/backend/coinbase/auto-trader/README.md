@@ -1,87 +1,169 @@
-# 4g3n7 - Autonomous Trading Agent
+# 4g3n7 Verified Auto Trader
 
-An autonomous trading agent that leverages Trusted Execution Environments (TEEs), blockchain technology, and AI to provide secure, private, and transparent trading operations.
+An AI-powered autonomous cryptocurrency trading agent that uses real-time market data and web search to make informed trading decisions.
 
-## Key Technologies
+## Features
 
-- **Marlin Oyster CVM**: Secure execution environment
-- **Coinbase AgentKit**: Financial operations toolkit
-- **Azure OpenAI**: AI-powered decision making
-- **Recall Network**: Transparent reasoning storage
+- 🤖 **AI-Powered Trading**: Uses Gemini 2.0 Flash for intelligent trading decisions
+- 🌐 **Web Search Integration**: Utilizes Tavily API for real-time market data and news
+- 💰 **Multi-Chain Support**: Works with Ethereum Sepolia and Base Sepolia testnets
+- 📊 **Portfolio Analysis**: Provides detailed portfolio analysis with real-time market data
+- 🔄 **Real-Time Updates**: WebSocket communication for live trade updates and notifications
+- 📝 **Decision Transparency**: All trading decisions are logged with detailed reasoning
+- 🔐 **Secure Wallet Integration**: Uses CDP (Coinbase Developer Platform) for secure wallet management
+- 🧠 **Memory System**: Recall Network integration for permanent storage of trading decisions
 
-## Environment Setup
+## Architecture
 
-Copy the `.env.sample` file to create your own `.env` file and fill in your credentials:
+The application consists of several key components:
 
-```bash
-cp .env.sample .env
-```
+1. **Trading Agent**: Core logic for trade execution and portfolio analysis
+2. **LLM Services**: Integration with Gemini 2.0 Flash for decision making
+3. **Web Search**: Tavily API integration for real-time market data
+4. **Memory Manager**: Recall Network for storing trading decisions
+5. **WebSocket Server**: Real-time communication for frontend clients
+6. **API Layer**: RESTful API for agent interactions
 
-### Azure OpenAI Configuration
+## Prerequisites
 
-The application has been tested to work with the following Azure OpenAI configuration:
+- Node.js (v16+)
+- Bun package manager
+- API Keys:
+  - Google AI (Gemini API)
+  - Tavily API
+  - Infura (for blockchain access)
+  - Recall Network (optional, for memory persistence)
 
-```
-AZURE_OPENAI_API_KEY=your_api_key
-AZURE_OPENAI_ENDPOINT=https://your-instance-name.openai.azure.com
-AZURE_OPENAI_API_DEPLOYMENT_NAME=gpt-4o
-AZURE_OPENAI_API_VERSION=2023-12-01-preview
-```
+## Installation
 
-Make sure your Azure OpenAI instance has a deployment of `gpt-4o` (or update the deployment name to match your configuration).
-
-## Development
-
-### Install Dependencies
-
-```bash
-npm install
-```
-
-### Build
-
-```bash
-npm run build
-```
-
-### Run
+1. Clone the repository
+2. Install dependencies:
 
 ```bash
-npm start
+cd auto-trader
+bun install
 ```
 
-### Testing Azure OpenAI Integration
-
-To test your Azure OpenAI integration, you can run:
+3. Copy the example environment file:
 
 ```bash
-node test-azure-studio.js
+cp .env.example .env
 ```
 
-## LangChain Integration
+4. Update the `.env` file with your API keys and configuration
 
-The project uses LangChain.js for integrating with Azure OpenAI. The implementation is in `src/agent/langchain.ts` and uses the following configuration pattern:
+## Environment Variables
 
-```typescript
-const llm = new ChatOpenAI({
-  temperature: 0.7,
-  modelName: process.env.AZURE_OPENAI_API_DEPLOYMENT_NAME,
-  openAIApiKey: process.env.AZURE_OPENAI_API_KEY,
-  configuration: {
-    baseURL: `${process.env.AZURE_OPENAI_ENDPOINT}/openai/deployments/${process.env.AZURE_OPENAI_API_DEPLOYMENT_NAME}`,
-    defaultQuery: { "api-version": process.env.AZURE_OPENAI_API_VERSION },
-    defaultHeaders: { "api-key": process.env.AZURE_OPENAI_API_KEY }
-  }
-});
+```
+# LLM API Keys
+GOOGLE_API_KEY=your_google_gemini_api_key
+TAVILY_API_KEY=your_tavily_api_key
+
+# Blockchain Configuration
+ETHEREUM_PRIVATE_KEY=your_wallet_private_key
+INFURA_API_KEY=your_infura_api_key
+
+# Service Configuration
+PORT=3200
+ENABLE_WEBSOCKETS=true
+ENABLE_AUTONOMOUS_MODE=false
+AUTONOMOUS_INTERVAL_MINUTES=60
+
+# Memory Configuration
+RECALL_PRIVATE_KEY=your_recall_private_key
+RECALL_BUCKET_ALIAS=auto-trader-memory
 ```
 
-## Running in Marlin CVM Environment
+## Running the Application
 
-To run the application in a Marlin Oyster CVM environment, set the `MARLIN_ENCLAVE` environment variable to `true`. This will configure the application to use the appropriate settings for running inside a TEE.
+### Development Mode
+
+```bash
+bun --watch src/index.ts
+```
+
+### Production Mode
+
+```bash
+bun run build
+bun run start
+```
+
+## API Endpoints
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/api/agent/wallet` | GET | Get agent wallet details |
+| `/api/trade` | POST | Execute a trade |
+| `/api/token-price/:symbol` | GET | Get current price for a token |
+| `/api/portfolio/analyze` | POST | Analyze a portfolio |
+
+### Trade Execution Example
+
+```bash
+curl -X POST "http://localhost:3200/api/trade" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "tradeType": "transfer",
+    "fromAsset": "eth",
+    "toAsset": "0x8070591331daa4b7f1e783a12b52890a6917d98d",
+    "amount": 0.001
+  }'
+```
+
+## WebSocket Events
+
+Connect to the WebSocket server at `ws://localhost:3200` to receive real-time updates.
+
+| Event | Description |
+|-------|-------------|
+| `trade_started` | A new trade has been initiated |
+| `trade_completed` | A trade has been completed |
+| `trade_failed` | A trade has failed |
+| `analysis_started` | Portfolio analysis has started |
+| `analysis_completed` | Portfolio analysis is complete |
+| `market_update` | Market data has been updated |
+| `agent_thinking` | Agent is making a decision |
+
+## Autonomous Trading
+
+The agent can be configured to run in autonomous mode, making trading decisions at regular intervals based on market conditions and portfolio performance.
+
+To enable autonomous mode, set `ENABLE_AUTONOMOUS_MODE=true` in your `.env` file.
+
+## Web Search Integration
+
+The agent utilizes Tavily API for real-time market data and news analysis. This enhances the agent's decision-making by incorporating up-to-date information about market trends, asset performance, and relevant news.
+
+## Project Structure
+
+```
+src/
+├── index.ts                # Application entry point
+├── create-agent.ts         # Agent factory
+├── server.ts               # Express server setup
+├── agent/                  # Trading agent implementation
+│   ├── index.ts            # Agent interface
+│   └── trading-agent.ts    # Main agent implementation
+├── api/                    # API routes
+│   ├── routes.ts           # API endpoint definitions
+│   └── wallet-mock.ts      # Mock wallet for testing
+├── services/               # Service implementations
+│   ├── llm-service.ts      # LLM service interface
+│   ├── gemini-llm.ts       # Gemini LLM implementation
+│   ├── recall-memory.ts    # Recall memory manager
+│   └── websocket.ts        # WebSocket service
+├── prompts/                # LLM prompt templates
+└── action-providers/       # Custom action providers
+```
+
+## Contributing
+
+Contributions are welcome! Please feel free to submit a Pull Request.
 
 ## License
 
-[MIT](LICENSE)
+This project is licensed under the MIT License - see the LICENSE file for details.
 
 # 4G3N7 Auto Trader Test Suite
 

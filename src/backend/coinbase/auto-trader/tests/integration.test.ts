@@ -27,10 +27,8 @@ const TEMP_DIR = '/tmp';
 
 // Configuration for Azure OpenAI
 const AZURE_CONFIG = {
-  apiKey: process.env.AZURE_OPENAI_API_KEY || 
-    '87St9rgvNs79TczQLxQ8dTb8LPOsdnS8TDQc3UkkxJRZidnL8jgkJQQJ99BCACHYHv6XJ3w3AAAAACOGhLwN',
-  endpoint: process.env.AZURE_OPENAI_ENDPOINT || 
-    'https://patri-m8hiz8kb-eastus2.openai.azure.com',
+  apiKey: process.env.AZURE_OPENAI_API_KEY || '',
+  endpoint: process.env.AZURE_OPENAI_ENDPOINT || '',
   deploymentName: process.env.AZURE_OPENAI_API_DEPLOYMENT_NAME || 'gpt-4o',
   apiVersion: process.env.AZURE_OPENAI_API_VERSION || '2023-12-01-preview',
   timeout: 25000 // Increase timeout for Azure OpenAI operations

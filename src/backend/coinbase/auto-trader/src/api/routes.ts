@@ -1,9 +1,10 @@
 // API Routes for Auto Trader
-import express, { Request, Response } from 'express';
+import express, { Request, Response, Application } from 'express';
 import { setupAgentKit, executeTradingStrategy, getWalletDetails, transferTokens } from '../agent/agentkit-integration.js';
 import { config } from 'dotenv';
 import { createMockWalletProvider } from './wallet-mock.js';
-import { AgentKit, walletActionProvider, erc20ActionProvider } from '@coinbase/agentkit';
+import { AgentKit } from '@coinbase/agentkit';
+import { Agent } from '../agent/index.js'; // Import Agent interface
 
 // Load environment variables
 config();
@@ -12,239 +13,461 @@ config();
 const router = express.Router();
 
 // Store the AgentKit instance
-let agentKit: any = null;
+let agentKit: AgentKit | null = null;
+
+// Store the Agent instance
+let agent: Agent | null = null;
 
 /**
- * Initialize the AgentKit instance
- * This is called when the server starts
+ * Set the Agent instance
+ * @param agentInstance The agent instance
  */
-export async function initializeAgentKit() {
+export function setAgent(agentInstance: Agent) {
+  agent = agentInstance;
+  console.log('Agent set in API routes');
+}
+
+/**
+ * Initialize API routes with an Express app and agent
+ * @param app Express application
+ * @param agentInstance Agent instance
+ */
+export function initAPIRoutes(app: Application, agentInstance: Agent) {
+  // Set the agent
+  setAgent(agentInstance);
+  
+  // Mount the router
+  app.use('/api', router);
+  
+  // Add health check route
+  app.get('/health', (req: Request, res: Response) => {
+    res.json({ status: 'healthy', version: '1.0.0' });
+  });
+  
+  console.log('API routes initialized');
+  
+  // For compatibility, also initialize AgentKit with a mock provider if not already set
+  if (!agentKit) {
+    console.warn('AgentKit not initialized - using mock provider');
+    const mockProvider = createMockWalletProvider('0x1234567890123456789012345678901234567890');
+    agentKit = mockProvider as unknown as AgentKit;
+  }
+}
+
+/**
+ * Initialize the API with AgentKit
+ */
+export async function initAPIWithAgentKit() {
   try {
-    // Check if Privy credentials are available
-    const privyAppId = process.env.PRIVY_APP_ID;
-    const privyAppSecret = process.env.PRIVY_APP_SECRET;
+    // Set up the AgentKit instance with CDP
+    const cdpApiKeyName = process.env.COINBASE_CDP_KEY;
+    const cdpApiKeyPrivateKey = process.env.COINBASE_CDP_SECRET;
+    const recallPrivateKey = process.env.RECALL_PRIVATE_KEY;
     
-    if (!privyAppId || !privyAppSecret) {
-      console.warn('Privy credentials not found. Using mock wallet provider for testing.');
+    // Check if required environment variables are available
+    if (!cdpApiKeyName || !cdpApiKeyPrivateKey) {
+      console.warn('Missing required environment variables for AgentKit integration');
+      console.warn('Using mock CDP provider...');
       
-      // Create a mock wallet provider
-      const mockWalletProvider = createMockWalletProvider();
-      
-      // Create action providers
-      const actionProviders = [
-        walletActionProvider(),
-        erc20ActionProvider()
-      ];
-      
-      // Create AgentKit instance with mock wallet
-      agentKit = await AgentKit.from({
-        walletProvider: mockWalletProvider,
-        actionProviders
-      });
-      
-      console.log('AgentKit initialized with mock wallet provider');
-      return true;
+      // Create mock wallet provider
+      const mockProvider = createMockWalletProvider('0x1234567890123456789012345678901234567890');
+      agentKit = mockProvider as unknown as AgentKit;
+      return;
     }
     
-    // Use real implementation
-    // Configure AgentKit with environment variables
+    console.log('Initializing AgentKit with CDP API');
     agentKit = await setupAgentKit({
-      privyAppId: process.env.PRIVY_APP_ID || '',
-      privyAppSecret: process.env.PRIVY_APP_SECRET || '',
-      privyWalletId: process.env.PRIVY_WALLET_ID,
-      privyAuthKey: process.env.PRIVY_AUTH_KEY,
-      privyAuthKeyId: process.env.PRIVY_AUTH_KEY_ID,
+      privyAppId: cdpApiKeyName, 
+      privyAppSecret: cdpApiKeyPrivateKey,
       chainId: process.env.CHAIN_ID || '84532',
-      recallPrivateKey: process.env.RECALL_PRIVATE_KEY,
-      recallBucketAlias: process.env.RECALL_BUCKET_ALIAS,
+      recallPrivateKey: recallPrivateKey || '',
+      recallBucketAlias: process.env.RECALL_BUCKET_ALIAS || 'auto-trader-memory',
       azureOpenAIApiKey: process.env.AZURE_OPENAI_API_KEY,
-      azureOpenAIEndpoint: process.env.AZURE_OPENAI_ENDPOINT,
+      azureOpenAIEndpoint: process.env.AZURE_OPENAI_API_INSTANCE_NAME ? 
+        `https://${process.env.AZURE_OPENAI_API_INSTANCE_NAME}.openai.azure.com` : undefined,
       azureOpenAIDeploymentName: process.env.AZURE_OPENAI_API_DEPLOYMENT_NAME,
       azureOpenAIApiVersion: process.env.AZURE_OPENAI_API_VERSION
     });
     
-    console.log('AgentKit initialized successfully with real providers');
-    return true;
+    console.log('AgentKit initialized with CDP API');
   } catch (error) {
     console.error('Failed to initialize AgentKit:', error);
     
-    // Fallback to mock implementation
-    console.warn('Falling back to mock wallet provider');
-    
-    try {
-      // Create a mock wallet provider
-      const mockWalletProvider = createMockWalletProvider();
-      
-      // Create action providers
-      const actionProviders = [
-        walletActionProvider(),
-        erc20ActionProvider()
-      ];
-      
-      // Create AgentKit instance with mock wallet
-      agentKit = await AgentKit.from({
-        walletProvider: mockWalletProvider,
-        actionProviders
-      });
-      
-      console.log('AgentKit initialized with mock wallet provider');
-      return true;
-    } catch (fallbackError) {
-      console.error('Failed to initialize mock wallet:', fallbackError);
-      return false;
-    }
+    // Create mock wallet provider as fallback
+    console.warn('Using mock CDP provider as fallback...');
+    const mockProvider = createMockWalletProvider('0x1234567890123456789012345678901234567890');
+    agentKit = mockProvider as unknown as AgentKit;
   }
 }
 
-/**
- * Middleware to check if AgentKit is initialized
- */
-function checkAgentKitInitialized(req: Request, res: Response, next: Function) {
+// Middleware to check if the wallet provider is initialized
+const checkAgentKitInitialized = (req: Request, res: Response, next: express.NextFunction) => {
   if (!agentKit) {
-    return res.status(503).json({
-      success: false,
-      error: 'AgentKit not initialized. Please try again later.'
+    return res.status(500).json({ 
+      error: 'AgentKit not initialized',
+      message: 'Please initialize the API with AgentKit first'
     });
   }
   next();
-}
+};
 
 /**
- * Health check endpoint
+ * Get agent wallet information
+ * @route GET /api/agent/wallet
  */
-router.get('/health', (req: Request, res: Response) => {
-  res.json({
-    status: 'ok',
-    agentKitInitialized: !!agentKit,
-    version: '1.0.0'
-  });
+router.get('/agent/wallet', async (req: Request, res: Response) => {
+  try {
+    if (!agent) {
+      return res.status(500).json({ error: 'Agent not initialized' });
+    }
+    
+    const agentStatus = await agent.getStatus();
+    
+    if (!agentStatus.wallet) {
+      return res.status(404).json({ error: 'Wallet information not available' });
+    }
+    
+    return res.json({ 
+      success: true, 
+      wallet: {
+        address: agentStatus.wallet.address,
+        network: agentStatus.wallet.network || 'testnet',
+        chain: agentStatus.wallet.chain || 'base-sepolia',
+        isReal: agentStatus.wallet.address !== process.env.MOCK_WALLET_ADDRESS
+      }
+    });
+  } catch (error) {
+    console.error(`Error getting agent wallet: ${error instanceof Error ? error.message : String(error)}`);
+    return res.status(500).json({ 
+      error: 'Failed to get agent wallet', 
+      details: error instanceof Error ? error.message : String(error) 
+    });
+  }
 });
 
 /**
  * Get wallet details
+ * @route GET /api/wallet
  */
-router.get('/wallet', checkAgentKitInitialized, async (req: Request, res: Response) => {
+router.get('/wallet', async (req: Request, res: Response) => {
   try {
-    // For a mock implementation, directly get wallet information
-    if (agentKit && agentKit.walletProvider) {
-      const address = agentKit.walletProvider.getAddress();
-      const chainId = agentKit.walletProvider.getChainId();
+    // First try to get wallet from agent
+    if (agent) {
       try {
-        const balance = await agentKit.walletProvider.getBalance();
+        const agentStatus = await agent.getStatus();
         
-        res.json({
-          success: true,
-          data: {
-            address,
-            chainId,
-            balance
-          }
-        });
-        return;
-      } catch (balanceError) {
-        console.error('Error getting balance:', balanceError);
+        if (agentStatus.wallet) {
+          return res.json({ 
+            success: true, 
+            source: 'agent',
+            wallet: {
+              address: agentStatus.wallet.address,
+              network: agentStatus.wallet.network || 'testnet',
+              chain: agentStatus.wallet.chain || 'base-sepolia'
+            }
+          });
+        }
+      } catch (error) {
+        console.warn('Error getting wallet from agent, falling back to AgentKit:', error);
       }
     }
     
-    // Fallback to the AgentKit method
-    try {
-      const result = await getWalletDetails(agentKit);
-      res.json({
-        success: true,
-        data: result
-      });
-    } catch (agentKitError) {
-      throw agentKitError;
+    // Fall back to AgentKit if agent wallet not available
+    if (agentKit) {
+      try {
+        const walletDetails = await getWalletDetails(agentKit);
+        return res.json({ 
+          success: true, 
+          source: 'agentkit',
+          wallet: walletDetails 
+        });
+      } catch (error) {
+        console.error(`Error getting wallet details from AgentKit: ${error instanceof Error ? error.message : String(error)}`);
+        return res.status(500).json({ 
+          error: 'Failed to get wallet details', 
+          details: error instanceof Error ? error.message : String(error) 
+        });
+      }
     }
-  } catch (error) {
-    res.status(500).json({
-      success: false,
-      error: error instanceof Error ? error.message : 'Unknown error'
+    
+    // No wallet provider available
+    return res.status(404).json({ 
+      error: 'No wallet provider available'
     });
-  }
-});
-
-/**
- * Execute a trading strategy
- */
-router.post('/strategy/execute', checkAgentKitInitialized, async (req: Request, res: Response) => {
-  try {
-    const { strategyName, params } = req.body;
-    
-    if (!strategyName) {
-      return res.status(400).json({
-        success: false,
-        error: 'Strategy name is required'
-      });
-    }
-    
-    const result = await executeTradingStrategy(agentKit, strategyName, params || {});
-    
-    res.json(result);
   } catch (error) {
-    res.status(500).json({
-      success: false,
-      error: error instanceof Error ? error.message : 'Unknown error'
+    console.error(`Error getting wallet details: ${error instanceof Error ? error.message : String(error)}`);
+    return res.status(500).json({ 
+      error: 'Failed to get wallet details', 
+      details: error instanceof Error ? error.message : String(error) 
     });
   }
 });
 
 /**
  * Transfer tokens
+ * @route POST /api/transfer
  */
 router.post('/transfer', checkAgentKitInitialized, async (req: Request, res: Response) => {
   try {
-    const { to, amount, tokenAddress } = req.body;
+    const { token, to, amount } = req.body;
     
-    if (!to || !amount) {
-      return res.status(400).json({
-        success: false,
-        error: 'Recipient address and amount are required'
+    if (!token || !to || !amount) {
+      return res.status(400).json({ 
+        error: 'Invalid request', 
+        message: 'token, to, and amount are required' 
       });
     }
     
-    if (!/^0x[a-fA-F0-9]{40}$/.test(to)) {
-      return res.status(400).json({
-        success: false,
-        error: 'Invalid recipient address'
+    // Validate address
+    if (!to.match(/^0x[a-fA-F0-9]{40}$/)) {
+      return res.status(400).json({ 
+        error: 'Invalid address', 
+        message: 'to address must be a valid Ethereum address' 
       });
     }
     
-    // Validate tokenAddress if provided
-    if (tokenAddress && !/^0x[a-fA-F0-9]{40}$/.test(tokenAddress)) {
+    // Validate amount
+    const amountNum = parseFloat(amount);
+    if (isNaN(amountNum) || amountNum <= 0) {
       return res.status(400).json({
-        success: false,
-        error: 'Invalid token address'
+        error: 'Invalid amount',
+        message: 'amount must be a positive number'
       });
     }
     
-    // Use the wallet provider directly
-    if (agentKit && agentKit.walletProvider) {
-      try {
-        const result = await agentKit.walletProvider.sendTransaction({
-          to,
-          value: amount,
-          data: '0x'
-        });
-        
-        res.json({
-          success: true,
-          data: {
-            transactionHash: result.transactionHash
-          }
-        });
-        return;
-      } catch (walletError) {
-        console.error('Error sending transaction via wallet provider:', walletError);
-        throw walletError;
-      }
-    } else {
-      throw new Error('Wallet provider not initialized');
-    }
+    console.log(`Transferring ${amountNum} ${token} to ${to}`);
+    const result = await transferTokens(agentKit!, to, amountNum.toString(), token);
+    
+    return res.json({ success: true, result });
   } catch (error) {
-    res.status(500).json({
-      success: false,
-      error: error instanceof Error ? error.message : 'Unknown error'
+    console.error(`Error transferring tokens: ${error instanceof Error ? error.message : String(error)}`);
+    return res.status(500).json({ 
+      error: 'Token transfer failed', 
+      details: error instanceof Error ? error.message : String(error) 
+    });
+  }
+});
+
+/**
+ * Execute a trading strategy
+ * @route POST /api/strategy/execute
+ */
+router.post('/strategy/execute', async (req: Request, res: Response) => {
+  try {
+    if (!agentKit) {
+      return res.status(500).json({ error: 'AgentKit not initialized' });
+    }
+    
+    const { strategyName, params } = req.body;
+    
+    if (!strategyName) {
+      return res.status(400).json({ error: 'Strategy name is required' });
+    }
+    
+    console.log(`Executing trading strategy: ${strategyName}`);
+    const result = await executeTradingStrategy(agentKit, strategyName, params || {});
+    
+    return res.json({ success: true, result });
+  } catch (error) {
+    console.error(`Error executing strategy: ${error instanceof Error ? error.message : String(error)}`);
+    return res.status(500).json({ 
+      error: 'Strategy execution failed', 
+      details: error instanceof Error ? error.message : String(error) 
+    });
+  }
+});
+
+/**
+ * Execute a specific trade
+ * @route POST /api/trade
+ */
+router.post('/trade', async (req: Request, res: Response) => {
+  try {
+    if (!agent) {
+      return res.status(500).json({ error: 'Agent not initialized' });
+    }
+    
+    const { tradeType, fromAsset, toAsset, amount } = req.body;
+    
+    if (!tradeType || !fromAsset || !toAsset || !amount) {
+      return res.status(400).json({ 
+        error: 'Invalid request', 
+        message: 'tradeType, fromAsset, toAsset, and amount are required' 
+      });
+    }
+    
+    // Validate trade type
+    const validTradeTypes = ['swap', 'wrap', 'unwrap', 'lend', 'supply', 'borrow', 'transfer'];
+    if (!validTradeTypes.includes(tradeType.toLowerCase())) {
+      return res.status(400).json({
+        error: 'Invalid trade type',
+        message: `Trade type must be one of: ${validTradeTypes.join(', ')}`
+      });
+    }
+    
+    // Validate amount
+    const amountNum = parseFloat(amount);
+    if (isNaN(amountNum) || amountNum <= 0) {
+      return res.status(400).json({
+        error: 'Invalid amount',
+        message: 'Amount must be a positive number'
+      });
+    }
+    
+    console.log(`Executing trade: ${tradeType} ${amountNum} ${fromAsset} to ${toAsset}`);
+    
+    // Call the agent to execute the trade
+    const trade = await agent.executeTrade(tradeType, fromAsset, toAsset, amountNum);
+    
+    if (trade.status === 'failed') {
+      return res.status(400).json({ 
+        error: 'Trade execution failed', 
+        details: trade.error || 'Unknown error' 
+      });
+    }
+    
+    return res.json({ success: true, trade });
+  } catch (error) {
+    console.error(`Error executing trade: ${error instanceof Error ? error.message : String(error)}`);
+    return res.status(500).json({ 
+      error: 'Trade execution failed', 
+      details: error instanceof Error ? error.message : String(error) 
+    });
+  }
+});
+
+/**
+ * Get token price information 
+ * @route GET /api/token-price/:symbol
+ */
+router.get('/token-price/:symbol', async (req: Request, res: Response) => {
+  try {
+    if (!agent) {
+      return res.status(500).json({ error: 'Agent not initialized' });
+    }
+    
+    const { symbol } = req.params;
+    
+    if (!symbol) {
+      return res.status(400).json({ error: 'Token symbol is required' });
+    }
+    
+    // Get market data - we'll use the existing analyzePortfolio method 
+    // with minimal data to get current prices
+    const marketData = {
+      [symbol]: { amount: 0, price: 0 }
+    };
+    
+    const analysisResult = await agent.analyzePortfolio({ assets: {} }, marketData);
+    
+    return res.json({ 
+      success: true, 
+      symbol,
+      price: analysisResult?.prices?.[symbol] || "Price not available"
+    });
+  } catch (error) {
+    console.error(`Error getting token price: ${error instanceof Error ? error.message : String(error)}`);
+    return res.status(500).json({ 
+      error: 'Failed to get token price', 
+      details: error instanceof Error ? error.message : String(error) 
+    });
+  }
+});
+
+/**
+ * Get memory entry by ID
+ * @route GET /api/memory/:id
+ */
+router.get('/memory/:id', async (req: Request, res: Response) => {
+  try {
+    if (!agent) {
+      return res.status(500).json({ error: 'Agent not initialized' });
+    }
+    
+    const { id } = req.params;
+    
+    if (!id) {
+      return res.status(400).json({ error: 'Memory ID is required' });
+    }
+    
+    // Use the agent's getReasoningHistory method to retrieve memory
+    const memory = await agent.getReasoningHistory(id);
+    
+    if (!memory || memory.error === 'Not found' || memory.status === 'not_found') {
+      return res.status(404).json({ 
+        error: 'Memory not found', 
+        id 
+      });
+    }
+    
+    return res.json({ 
+      success: true,
+      memory
+    });
+  } catch (error) {
+    console.error(`Error retrieving memory: ${error instanceof Error ? error.message : String(error)}`);
+    return res.status(500).json({ 
+      error: 'Failed to retrieve memory', 
+      details: error instanceof Error ? error.message : String(error) 
+    });
+  }
+});
+
+/**
+ * Get memory entries by type
+ * @route GET /api/memories/:type
+ */
+router.get('/memories/:type', async (req: Request, res: Response) => {
+  try {
+    if (!agent) {
+      return res.status(500).json({ error: 'Agent not initialized' });
+    }
+    
+    const { type } = req.params;
+    
+    if (!type) {
+      return res.status(400).json({ error: 'Memory type is required' });
+    }
+    
+    // Valid memory types - update to match actual types used in the application
+    const validTypes = ['portfolio-analysis', 'trade_analysis', 'trade_execution', 'error', 'web_search'];
+    
+    if (!validTypes.includes(type)) {
+      return res.status(400).json({ 
+        error: 'Invalid memory type', 
+        message: `Type must be one of: ${validTypes.join(', ')}`,
+        requestedType: type
+      });
+    }
+    
+    // Get limit from query params, default to 10
+    const limit = parseInt(req.query.limit as string) || 10;
+    
+    // Get memory manager from agent
+    const memoryManager = agent.getMemoryManager();
+    
+    if (!memoryManager) {
+      return res.status(500).json({ error: 'Memory manager not available' });
+    }
+    
+    const memories = await memoryManager.query(type);
+    
+    // Sort by timestamp (newest first) and limit results
+    const sortedMemories = memories
+      .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())
+      .slice(0, limit);
+    
+    return res.json({ 
+      success: true,
+      type,
+      count: sortedMemories.length,
+      memories: sortedMemories
+    });
+  } catch (error) {
+    console.error(`Error retrieving memories of type ${req.params.type}: ${error instanceof Error ? error.message : String(error)}`);
+    return res.status(500).json({ 
+      error: 'Failed to retrieve memories', 
+      details: error instanceof Error ? error.message : String(error) 
     });
   }
 });
