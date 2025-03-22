@@ -1,0 +1,316 @@
+# Auto Trader Architecture Database
+
+## System Components and Data Flow
+
+### Core Components
+
+1. **Express Server**
+   - Handles HTTP requests and responses
+   - Routes incoming API calls to appropriate handlers
+   - Manages authentication and security middleware
+   - Initializes WebSocket connections for real-time updates
+
+2. **Trading Agent**
+   - Primary implementation for portfolio analysis and trading
+   - Integrates directly with LLM services (Gemini)
+   - Makes web search API calls for enhanced analysis
+   - Contains local wallet implementation with ethers.js
+
+3. **AgentKit Agent**
+   - Coinbase AgentKit implementation
+   - Provides enhanced on-chain trading capabilities
+   - Uses CDP wallet provider for secure wallet management
+   - Integrates with multiple action providers
+
+4. **Coordinated Agent**
+   - Acts as a facade for both agent implementations
+   - Distributes requests between agents based on capability
+   - Combines results for comprehensive analysis
+   - Maintains consistent memory management across agents
+
+5. **Memory Management**
+   - Uses Recall Network for persistent memory storage
+   - Stores analysis results, trade executions, and reasoning
+   - Provides a query interface for retrieving historical data
+   - Enables collaboration between agent instances
+
+6. **Wallet Management**
+   - Primary: CDP Wallet provider for secure key management
+   - Secondary: ethers.js for fallback implementation
+   - Encrypted database for persistent wallet storage
+   - Supports testnet and mainnet operation
+
+### Data Flow Sequence
+
+1. **Portfolio Analysis Flow**
+   ```
+   Client -> Express Server -> Coordinated Agent -> Primary Agent
+                                                 -> AgentKit Agent
+                                                 -> Memory Storage
+                                                 -> Client
+   ```
+
+   1. Client sends portfolio data via API
+   2. Express server validates request and forwards to coordinated agent
+   3. Coordinated agent sends request to both primary and AgentKit agents
+   4. Primary agent performs analysis with Gemini LLM
+   5. AgentKit agent performs parallel analysis with its providers
+   6. Coordinated agent combines results and stores in memory
+   7. Combined analysis returned to client
+
+2. **Trade Execution Flow**
+   ```
+   Client -> Express Server -> Coordinated Agent -> Primary Agent
+                                                 -> Wallet Provider
+                                                 -> Memory Storage
+                                                 -> Client
+   ```
+
+   1. Client sends trade request with asset and amount
+   2. Express server validates request and forwards to coordinated agent
+   3. Coordinated agent delegates to primary agent
+   4. Primary agent performs trade execution 
+   5. Results stored in Recall memory
+   6. Trade confirmation returned to client
+
+3. **Memory Retrieval Flow**
+   ```
+   Client -> Express Server -> Memory Manager -> Recall Network
+                                              -> Client
+   ```
+
+   1. Client requests memory retrieval by type
+   2. Express server validates request and forwards to memory manager
+   3. Memory manager queries Recall Network
+   4. Results returned to client
+
+## Data Models
+
+### Portfolio Analysis Request
+```json
+{
+  "portfolio": {
+    "assets": {
+      "ETH": {
+        "amount": 2.5,
+        "value": 7500
+      },
+      "USDC": {
+        "amount": 5000,
+        "value": 5000
+      }
+    }
+  },
+  "marketData": {
+    "ETH": {
+      "price": 3000,
+      "change24h": 2.5
+    },
+    "USDC": {
+      "price": 1,
+      "change24h": 0
+    },
+    "BTC": {
+      "price": 60000,
+      "change24h": -1.2
+    }
+  }
+}
+```
+
+### Trade Execution Request
+```json
+{
+  "tradeType": "swap",
+  "fromAsset": "ETH",
+  "toAsset": "USDC",
+  "amount": 0.1
+}
+```
+
+### Memory Retrieval Request
+```json
+{
+  "type": "trade_execution",
+  "limit": 10,
+  "offset": 0
+}
+```
+
+## System Integrity Checks
+
+1. **Startup Integrity Flow**
+   ```
+   Start
+     -> Initialize Database
+     -> Validate Environment Variables
+     -> Connect to LLM Service
+     -> Initialize Memory Manager
+     -> Create Primary Agent
+     -> Create AgentKit Agent
+     -> Create Coordinated Agent
+     -> Start Express Server
+   ```
+
+2. **Graceful Shutdown Flow**
+   ```
+   Receive Shutdown Signal
+     -> Complete In-Flight Transactions
+     -> Close Memory Connections
+     -> Persist Wallet State
+     -> Close LLM Connections
+     -> Close Express Server
+   ```
+
+3. **Error Handling Flow**
+   ```
+   Error Detected
+     -> Log Error Details
+     -> Attempt Local Recovery
+     -> Use Fallback Services
+     -> Return Meaningful Error
+     -> Monitor for Recurring Patterns
+   ```
+
+## Marlin CVM Deployment
+
+### Marlin CVM Architecture
+```
+┌─────────────────────────────────────────────────────────────┐
+│                      Marlin CVM                             │
+│                                                             │
+│  ┌─────────────┐    ┌─────────────┐    ┌─────────────┐     │
+│  │ Auto Trader │    │   Secure    │    │ Attestation │     │
+│  │    App      │    │  Enclave    │    │  Service    │     │
+│  └─────────────┘    └─────────────┘    └─────────────┘     │
+│                                                             │
+│  ┌─────────────────────────────────────────────────────┐   │
+│  │                 Confidential Compute                 │   │
+│  │                                                      │   │
+│  │   ┌────────────┐            ┌────────────────┐      │   │
+│  │   │  Encrypted │            │  Secure Key    │      │   │
+│  │   │  Memory    │            │  Management    │      │   │
+│  │   └────────────┘            └────────────────┘      │   │
+│  └─────────────────────────────────────────────────────┘   │
+│                                                             │
+└─────────────────────────────────────────────────────────────┘
+```
+
+### Marlin Deployment Process
+
+1. **Build an EIF (Encrypted Image Format) file**
+   ```
+   Docker Image
+     -> oyster-eif
+     -> Attestation 
+     -> EIF File
+   ```
+
+2. **Upload the EIF to a storage service**
+   ```
+   EIF File
+     -> PINATA Upload
+     -> URL for Deployment
+   ```
+
+3. **Deploy the EIF using Oyster CVM**
+   ```
+   Wallet with ETH/USDC
+     -> oyster-cvm deploy
+     -> Enclave Instance
+     -> IP Address
+   ```
+
+4. **Configure environment variables**
+   ```
+   Environment Variables
+     -> Pulse Client
+     -> PCR Verification
+     -> Secure Enclave
+   ```
+
+### Attestation Verification Flow
+
+1. **PCR Validation Process**
+   ```
+   Client
+     -> Request Attestation
+     -> Verify PCR Values
+     -> Validate Enclave
+     -> Trust Established
+   ```
+
+2. **Secure Memory Access**
+   ```
+   Client
+     -> Encrypted Request
+     -> Secure Enclave Processing
+     -> Encrypted Response
+     -> Client Decryption
+   ```
+
+3. **Identity Verification**
+   ```
+   Client
+     -> Public Key Validation
+     -> Signature Verification
+     -> Challenge-Response
+     -> Identity Confirmed
+   ```
+
+## Docker Container Deployment
+
+### Docker Container Architecture
+```
+┌─────────────────────────────────────────────────────────────┐
+│                    Docker Container                         │
+│                                                             │
+│  ┌─────────────┐    ┌─────────────┐    ┌─────────────┐     │
+│  │ Auto Trader │    │  Bun.js     │    │  Node.js    │     │
+│  │    App      │    │  Runtime    │    │  Modules    │     │
+│  └─────────────┘    └─────────────┘    └─────────────┘     │
+│                                                             │
+│  ┌─────────────────────────────────────────────────────┐   │
+│  │                  Persistent Volumes                  │   │
+│  │                                                      │   │
+│  │   ┌────────────┐            ┌────────────────┐      │   │
+│  │   │   Wallet   │            │  Config Files  │      │   │
+│  │   │ Storage    │            │                │      │   │
+│  │   └────────────┘            └────────────────┘      │   │
+│  └─────────────────────────────────────────────────────┘   │
+│                                                             │
+└─────────────────────────────────────────────────────────────┘
+```
+
+### Docker Deployment Process
+
+1. **Build the Docker Image**
+   ```
+   Source Code
+     -> Docker Build
+     -> auto-trader:latest
+   ```
+
+2. **Run the Docker Container**
+   ```
+   Docker Image
+     -> Docker Run
+     -> Port Mapping (3222:3000)
+     -> Volume Mounting
+   ```
+
+3. **Volume Configuration**
+   ```
+   Host Volumes
+     -> Wallet Data Storage
+     -> Configuration Files
+     -> Environment Variables
+   ```
+
+4. **Network Configuration**
+   ```
+   Port Mapping
+     -> External: 3222
+     -> Internal: 3000
+     -> Health Check: localhost:3000/health
+   ``` 

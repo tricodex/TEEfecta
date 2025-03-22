@@ -2,6 +2,9 @@
 import { OpenAIClient, AzureKeyCredential } from '@azure/openai';
 import * as dotenv from 'dotenv';
 import axios from 'axios';
+import { v4 as uuidv4 } from 'uuid';
+import { getConversationTracker, MessageType } from './conversation-tracker.js';
+import { getWebSocketService } from './websocket.js';
 
 dotenv.config({ path: '.env.azure' });
 
@@ -10,6 +13,14 @@ const AZURE_OPENAI_API_KEY = process.env.AZURE_OPENAI_API_KEY || '';
 const AZURE_OPENAI_API_INSTANCE_NAME = process.env.AZURE_OPENAI_API_INSTANCE_NAME || '';
 const AZURE_OPENAI_API_DEPLOYMENT_NAME = process.env.AZURE_OPENAI_API_DEPLOYMENT_NAME || 'gpt-4o';
 const AZURE_OPENAI_API_VERSION = process.env.AZURE_OPENAI_API_VERSION || '2023-12-01-preview';
+
+// Services
+const conversationTracker = getConversationTracker();
+const websocketService = getWebSocketService();
+
+// Current conversation and agent tracking
+let currentConversationId: string | null = null;
+let currentAgentId: string | null = null;
 
 // Validate configuration
 if (!AZURE_OPENAI_API_KEY) {
@@ -28,6 +39,54 @@ function isValidUrl(string: string) {
   } catch (_) {
     return false;
   }
+}
+
+/**
+ * Set the current agent ID for conversation tracking
+ * @param agentId The agent ID to set
+ */
+export function setCurrentAgentId(agentId: string) {
+  currentAgentId = agentId;
+  
+  // Create a new conversation if one doesn't exist
+  if (!currentConversationId && currentAgentId) {
+    createNewConversation();
+  }
+}
+
+/**
+ * Get the current conversation ID
+ * @returns The current conversation ID or null if none exists
+ */
+export function getCurrentConversationId(): string | null {
+  return currentConversationId;
+}
+
+/**
+ * Create a new conversation for the current agent
+ * @returns The new conversation ID
+ */
+export function createNewConversation(): string {
+  if (!currentAgentId) {
+    throw new Error('Cannot create conversation: No agent ID set');
+  }
+  
+  const title = `Azure OpenAI Conversation ${new Date().toISOString()}`;
+  currentConversationId = conversationTracker.createConversation(
+    title,
+    [currentAgentId],
+    { provider: 'azure-openai', model: AZURE_OPENAI_API_DEPLOYMENT_NAME }
+  );
+  
+  // Broadcast event
+  websocketService.broadcast('conversation_created', {
+    conversationId: currentConversationId,
+    title,
+    agentId: currentAgentId,
+    provider: 'azure-openai'
+  });
+  
+  return currentConversationId;
 }
 
 // Get Azure OpenAI endpoint URL
@@ -122,11 +181,41 @@ export async function verifyAzureOpenAIConnection(): Promise<boolean> {
 // Main API function to send a prompt to Azure OpenAI
 export async function sendPromptToAzureOpenAI(
   prompt: string,
-  systemMessage: string = 'You are a helpful AI assistant.'
+  systemMessage: string = 'You are a helpful AI assistant.',
+  conversationId?: string
 ): Promise<string> {
   try {
+    // Use provided conversation ID or current one
+    const activeConversationId = conversationId || currentConversationId;
+    
+    // Create a new conversation if none exists
+    if (!activeConversationId && currentAgentId) {
+      createNewConversation();
+    }
+    
+    // Track the prompt in the conversation
+    if (activeConversationId && currentAgentId) {
+      conversationTracker.addMessage(
+        activeConversationId,
+        MessageType.USER,
+        currentAgentId,
+        prompt,
+        { systemMessage }
+      );
+      
+      // Broadcast the prompt
+      websocketService.broadcast('llm_prompt', {
+        conversationId: activeConversationId,
+        agentId: currentAgentId,
+        provider: 'azure-openai',
+        prompt,
+        systemMessage
+      });
+    }
+    
     const client = createAzureOpenAIClient();
     
+    const requestStartTime = Date.now();
     const result = await client.getChatCompletions(
       AZURE_OPENAI_API_DEPLOYMENT_NAME,
       [
@@ -134,14 +223,62 @@ export async function sendPromptToAzureOpenAI(
         { role: 'user', content: prompt }
       ]
     );
+    const requestDuration = Date.now() - requestStartTime;
     
+    let response = '';
     if (result.choices && result.choices.length > 0 && result.choices[0].message) {
-      return result.choices[0].message.content || '';
+      response = result.choices[0].message.content || '';
+      
+      // Track the response in the conversation
+      if (activeConversationId && currentAgentId) {
+        conversationTracker.addMessage(
+          activeConversationId,
+          MessageType.LLM,
+          'azure-openai',
+          response,
+          {
+            model: AZURE_OPENAI_API_DEPLOYMENT_NAME,
+            requestDuration,
+            tokenUsage: result.usage
+          }
+        );
+        
+        // Broadcast the response
+        websocketService.broadcast('llm_response', {
+          conversationId: activeConversationId,
+          agentId: currentAgentId,
+          provider: 'azure-openai',
+          model: AZURE_OPENAI_API_DEPLOYMENT_NAME,
+          response,
+          requestDuration,
+          tokenUsage: result.usage
+        });
+      }
+      
+      return response;
     }
     
     throw new Error('No response content received from Azure OpenAI');
   } catch (error) {
     console.error('Error sending prompt to Azure OpenAI:', error);
+    
+    // Track the error in conversation
+    if (currentConversationId && currentAgentId) {
+      conversationTracker.addErrorMessage(
+        currentConversationId,
+        'azure-openai',
+        `Failed to get response from Azure OpenAI: ${error instanceof Error ? error.message : String(error)}`
+      );
+      
+      // Broadcast the error
+      websocketService.broadcast('llm_error', {
+        conversationId: currentConversationId,
+        agentId: currentAgentId,
+        provider: 'azure-openai',
+        error: error instanceof Error ? error.message : String(error)
+      });
+    }
+    
     throw new Error(`Failed to get response from Azure OpenAI: ${error instanceof Error ? error.message : String(error)}`);
   }
 } 

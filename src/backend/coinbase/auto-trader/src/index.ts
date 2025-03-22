@@ -11,6 +11,8 @@ import { AutonomousTrader } from './autonomous-trader.js';
 import { Agent } from './agent/index.js';
 import { CoordinatedAgent } from './agent/coordination-agent.js';
 import { getWalletDB } from './db/wallet-db.js';
+import { getWebSocketService } from './services/websocket.js';
+import http from 'http';
 
 // Load environment variables
 dotenv.config();
@@ -31,6 +33,12 @@ if (!process.env.USE_MOCK_WALLET) {
   console.log('USE_MOCK_WALLET not set, defaulting to false');
 }
 
+// Enable WebSockets by default
+if (!process.env.ENABLE_WEBSOCKETS) {
+  process.env.ENABLE_WEBSOCKETS = 'true';
+  console.log('ENABLE_WEBSOCKETS not set, defaulting to true');
+}
+
 // Ensure Gemini API key is properly set
 if (process.env.GOOGLE_API_KEY && !process.env.GEMINI_API_KEY) {
   process.env.GEMINI_API_KEY = process.env.GOOGLE_API_KEY;
@@ -39,15 +47,30 @@ if (process.env.GOOGLE_API_KEY && !process.env.GEMINI_API_KEY) {
 
 // Set up Express
 const app = express();
-const port = process.env.PORT || 3002;
+const port = parseInt(process.env.PORT || '3222', 10);
+
+// Create HTTP server (needed for WebSocket support)
+const server = http.createServer(app);
+
+// Initialize the WebSocket service
+const websocketService = getWebSocketService();
 
 // Middleware
 app.use(cors());
 app.use(express.json());
 
+// Check for running in Docker
+const isRunningInDocker = process.env.RUNNING_IN_DOCKER === 'true';
+console.log(`Running in Docker: ${isRunningInDocker ? 'Yes' : 'No'}`);
+
 // Health check endpoint
 app.get('/health', (req, res) => {
-  res.json({ status: 'healthy', version: '1.0.0' });
+  res.json({ 
+    status: 'healthy', 
+    version: '1.0.0',
+    environment: process.env.NODE_ENV || 'development',
+    docker: isRunningInDocker
+  });
 });
 
 // Get real wallet address from private key
@@ -75,6 +98,8 @@ async function createCoordinatedAgent(
 async function startServer() {
   try {
     console.log('Starting Auto Trader Server...');
+    console.log(`Environment: ${process.env.NODE_ENV || 'development'}`);
+    console.log(`Memory mode: ${process.env.RECALL_MEMORY_MODE || 'persistent'}`);
     
     // Initialize wallet database
     const walletDB = getWalletDB();
@@ -84,6 +109,10 @@ async function startServer() {
     // Get configuration from environment
     const preferredLLM = (process.env.PREFERRED_LLM_PROVIDER || 'gemini').toLowerCase() as LLMProvider;
     console.log(`Initializing with preferred LLM provider: ${preferredLLM}`);
+    
+    if (preferredLLM === 'gemini' && !process.env.GEMINI_API_KEY) {
+      console.warn('GEMINI_API_KEY is not set but Gemini is selected as the LLM provider');
+    }
     
     // Get the real wallet address from private key or mnemonic
     let walletAddress = '';
@@ -182,6 +211,9 @@ async function startServer() {
       console.error('Error getting agent status:', error);
     }
     
+    // Attach WebSocket service to the HTTP server
+    websocketService.attachToServer(server);
+    
     // Initialize and start the autonomous trader if enabled
     const autonomousTrader = new AutonomousTrader(agent);
     
@@ -194,9 +226,11 @@ async function startServer() {
       console.log('Autonomous mode is disabled, not starting');
     }
     
-    // Start listening
-    app.listen(port, () => {
+    // Start listening with the HTTP server instead of the Express app
+    server.listen(port, '0.0.0.0', () => {
       console.log(`Auto Trader API listening on port ${port}`);
+      console.log(`Health check available at http://localhost:${port}/health`);
+      console.log(`WebSocket available at ws://localhost:${port}/ws`);
     });
   } catch (error) {
     console.error('Error starting server:', error);

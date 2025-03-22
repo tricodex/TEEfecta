@@ -5,6 +5,8 @@ import { config } from 'dotenv';
 import { createMockWalletProvider } from './wallet-mock.js';
 import { AgentKit } from '@coinbase/agentkit';
 import { Agent } from '../agent/index.js'; // Import Agent interface
+import { getAgentQueueService, TaskStatus, TaskType, TaskPriority } from '../services/agent-queue.js';
+import { getConversationTracker, MessageType } from '../services/conversation-tracker.js';
 
 // Load environment variables
 config();
@@ -17,6 +19,10 @@ let agentKit: AgentKit | null = null;
 
 // Store the Agent instance
 let agent: Agent | null = null;
+
+// Get queue and conversation services
+const queueService = getAgentQueueService();
+const conversationTracker = getConversationTracker();
 
 /**
  * Set the Agent instance
@@ -49,18 +55,13 @@ router.get('/agent/status', async (req: Request, res: Response) => {
           : 'traditional',
         provider: process.env.PREFERRED_LLM_PROVIDER || 'gemini',
         wallet: agentStatus.wallet 
-          ? {
-              address: agentStatus.wallet.address,
-              network: agentStatus.wallet.network || 'testnet',
-              chain: agentStatus.wallet.chain || 'base-sepolia'
-            }
-          : null
       }
     });
   } catch (error) {
     console.error('Error getting agent status:', error);
-    return res.status(500).json({
-      error: 'Failed to retrieve agent status',
+    return res.status(500).json({ 
+      success: false,
+      error: 'Failed to get agent status',
       message: error instanceof Error ? error.message : String(error)
     });
   }
@@ -602,4 +603,481 @@ router.post('/analyze', async (req: Request, res: Response) => {
   }
 });
 
+// Queue Management Routes
+
+/**
+ * Get all tasks in the queue
+ */
+router.get('/queue', (req: Request, res: Response) => {
+  try {
+    const tasks = queueService.getTasks();
+    
+    // Format tasks for JSON response
+    const formattedTasks = tasks.map(task => ({
+      id: task.id,
+      type: task.type,
+      agentId: task.agentId,
+      priority: task.priority,
+      status: task.status,
+      data: task.data,
+      result: task.result,
+      error: task.error,
+      createdAt: task.createdAt.toISOString(),
+      startedAt: task.startedAt ? task.startedAt.toISOString() : null,
+      completedAt: task.completedAt ? task.completedAt.toISOString() : null,
+      allowFrontendIntervention: task.allowFrontendIntervention,
+      frontendInterventionTimeout: task.frontendInterventionTimeout,
+      frontendInterventionDeadline: task.frontendInterventionDeadline ? 
+        task.frontendInterventionDeadline.toISOString() : null,
+      // Convert context Map to object
+      context: task.context ? Object.fromEntries(task.context) : {}
+    }));
+    
+    return res.json({
+      success: true,
+      tasks: formattedTasks
+    });
+  } catch (error) {
+    console.error('Error getting queue tasks:', error);
+    return res.status(500).json({ 
+      success: false,
+      error: 'Failed to get queue tasks',
+      message: error instanceof Error ? error.message : String(error)
+    });
+  }
+});
+
+/**
+ * Get a specific task by ID
+ */
+router.get('/queue/:taskId', (req: Request, res: Response) => {
+  try {
+    const { taskId } = req.params;
+    const task = queueService.getTask(taskId);
+    
+    if (!task) {
+      return res.status(404).json({
+        success: false,
+        error: 'Task not found',
+        message: `No task found with ID: ${taskId}`
+      });
+    }
+    
+    // Format task for JSON response
+    const formattedTask = {
+      id: task.id,
+      type: task.type,
+      agentId: task.agentId,
+      priority: task.priority,
+      status: task.status,
+      data: task.data,
+      result: task.result,
+      error: task.error,
+      createdAt: task.createdAt.toISOString(),
+      startedAt: task.startedAt ? task.startedAt.toISOString() : null,
+      completedAt: task.completedAt ? task.completedAt.toISOString() : null,
+      allowFrontendIntervention: task.allowFrontendIntervention,
+      frontendInterventionTimeout: task.frontendInterventionTimeout,
+      frontendInterventionDeadline: task.frontendInterventionDeadline ? 
+        task.frontendInterventionDeadline.toISOString() : null,
+      // Convert context Map to object
+      context: task.context ? Object.fromEntries(task.context) : {}
+    };
+    
+    return res.json({
+      success: true,
+      task: formattedTask
+    });
+  } catch (error) {
+    console.error('Error getting task:', error);
+    return res.status(500).json({ 
+      success: false,
+      error: 'Failed to get task',
+      message: error instanceof Error ? error.message : String(error)
+    });
+  }
+});
+
+/**
+ * Provide frontend response to a waiting task
+ */
+router.post('/queue/:taskId/response', (req: Request, res: Response) => {
+  try {
+    const { taskId } = req.params;
+    const { response } = req.body;
+    
+    if (!response) {
+      return res.status(400).json({
+        success: false,
+        error: 'Missing response',
+        message: 'Response data is required'
+      });
+    }
+    
+    const task = queueService.getTask(taskId);
+    
+    if (!task) {
+      return res.status(404).json({
+        success: false,
+        error: 'Task not found',
+        message: `No task found with ID: ${taskId}`
+      });
+    }
+    
+    if (task.status !== TaskStatus.WAITING_FOR_FRONTEND) {
+      return res.status(400).json({
+        success: false,
+        error: 'Task not waiting for frontend',
+        message: `Task is in ${task.status} status, not waiting for frontend`
+      });
+    }
+    
+    const success = queueService.provideFrontendResponse(taskId, response);
+    
+    if (!success) {
+      return res.status(500).json({
+        success: false,
+        error: 'Failed to provide response',
+        message: 'An error occurred while providing frontend response'
+      });
+    }
+    
+    return res.json({
+      success: true,
+      message: 'Response provided successfully',
+      taskId
+    });
+  } catch (error) {
+    console.error('Error providing task response:', error);
+    return res.status(500).json({ 
+      success: false,
+      error: 'Failed to provide task response',
+      message: error instanceof Error ? error.message : String(error)
+    });
+  }
+});
+
+/**
+ * Cancel a task in the queue
+ */
+router.delete('/queue/:taskId', (req: Request, res: Response) => {
+  try {
+    const { taskId } = req.params;
+    
+    const task = queueService.getTask(taskId);
+    
+    if (!task) {
+      return res.status(404).json({
+        success: false,
+        error: 'Task not found',
+        message: `No task found with ID: ${taskId}`
+      });
+    }
+    
+    const success = queueService.cancelTask(taskId);
+    
+    if (!success) {
+      return res.status(400).json({
+        success: false,
+        error: 'Cannot cancel task',
+        message: `Task is in ${task.status} status and cannot be cancelled`
+      });
+    }
+    
+    return res.json({
+      success: true,
+      message: 'Task cancelled successfully',
+      taskId
+    });
+  } catch (error) {
+    console.error('Error cancelling task:', error);
+    return res.status(500).json({ 
+      success: false,
+      error: 'Failed to cancel task',
+      message: error instanceof Error ? error.message : String(error)
+    });
+  }
+});
+
+/**
+ * Create a new task manually
+ */
+router.post('/queue', (req: Request, res: Response) => {
+  try {
+    const { type, agentId, data, priority, allowFrontendIntervention, frontendInterventionTimeout } = req.body;
+    
+    if (!type || !agentId || !data) {
+      return res.status(400).json({
+        success: false,
+        error: 'Missing required fields',
+        message: 'type, agentId, and data are required'
+      });
+    }
+    
+    // Check if type is valid
+    if (!Object.values(TaskType).includes(type)) {
+      return res.status(400).json({
+        success: false,
+        error: 'Invalid task type',
+        message: `Type must be one of: ${Object.values(TaskType).join(', ')}`
+      });
+    }
+    
+    const taskPriority = priority !== undefined ? 
+      (typeof priority === 'number' ? priority : TaskPriority.NORMAL) : 
+      TaskPriority.NORMAL;
+    
+    const taskId = queueService.addTask(
+      type,
+      agentId,
+      data,
+      taskPriority,
+      allowFrontendIntervention === true,
+      frontendInterventionTimeout || undefined
+    );
+    
+    return res.json({
+      success: true,
+      message: 'Task created successfully',
+      taskId
+    });
+  } catch (error) {
+    console.error('Error creating task:', error);
+    return res.status(500).json({ 
+      success: false,
+      error: 'Failed to create task',
+      message: error instanceof Error ? error.message : String(error)
+    });
+  }
+});
+
+// Conversation Management Routes
+
+/**
+ * Get all conversations
+ */
+router.get('/conversations', (req: Request, res: Response) => {
+  try {
+    const conversations = conversationTracker.getAllConversations();
+    
+    // Format conversations for JSON response (convert Maps to objects)
+    const formattedConversations = conversations.map(conversation => ({
+      id: conversation.id,
+      title: conversation.title,
+      agentIds: conversation.agentIds,
+      createdAt: conversation.createdAt.toISOString(),
+      updatedAt: conversation.updatedAt.toISOString(),
+      messageCount: conversation.messages.length,
+      metadata: conversation.metadata || {}
+    }));
+    
+    return res.json({
+      success: true,
+      conversations: formattedConversations
+    });
+  } catch (error) {
+    console.error('Error getting conversations:', error);
+    return res.status(500).json({ 
+      success: false,
+      error: 'Failed to get conversations',
+      message: error instanceof Error ? error.message : String(error)
+    });
+  }
+});
+
+/**
+ * Get a specific conversation by ID
+ */
+router.get('/conversations/:conversationId', (req: Request, res: Response) => {
+  try {
+    const { conversationId } = req.params;
+    const conversation = conversationTracker.getConversation(conversationId);
+    
+    if (!conversation) {
+      return res.status(404).json({
+        success: false,
+        error: 'Conversation not found',
+        message: `No conversation found with ID: ${conversationId}`
+      });
+    }
+    
+    // Format conversation for JSON response (convert Maps to objects)
+    const formattedConversation = {
+      id: conversation.id,
+      title: conversation.title,
+      agentIds: conversation.agentIds,
+      createdAt: conversation.createdAt.toISOString(),
+      updatedAt: conversation.updatedAt.toISOString(),
+      metadata: conversation.metadata || {}
+    };
+    
+    return res.json({
+      success: true,
+      conversation: formattedConversation
+    });
+  } catch (error) {
+    console.error('Error getting conversation:', error);
+    return res.status(500).json({ 
+      success: false,
+      error: 'Failed to get conversation',
+      message: error instanceof Error ? error.message : String(error)
+    });
+  }
+});
+
+/**
+ * Get messages in a conversation
+ */
+router.get('/conversations/:conversationId/messages', (req: Request, res: Response) => {
+  try {
+    const { conversationId } = req.params;
+    const { type, sender, limit, offset } = req.query;
+    
+    let messages = [];
+    
+    // Handle filtering by type or sender if provided
+    if (type && typeof type === 'string') {
+      if (!Object.values(MessageType).includes(type as MessageType)) {
+        return res.status(400).json({
+          success: false,
+          error: 'Invalid message type',
+          message: `Type must be one of: ${Object.values(MessageType).join(', ')}`
+        });
+      }
+      messages = conversationTracker.getMessagesByType(conversationId, type as MessageType);
+    } else if (sender && typeof sender === 'string') {
+      messages = conversationTracker.getMessagesBySender(conversationId, sender);
+    } else {
+      messages = conversationTracker.getMessages(conversationId);
+    }
+    
+    // Apply pagination if specified
+    const offsetNum = offset ? parseInt(offset as string, 10) : 0;
+    const limitNum = limit ? parseInt(limit as string, 10) : messages.length;
+    
+    const paginatedMessages = messages.slice(offsetNum, offsetNum + limitNum);
+    
+    // Format messages for JSON response
+    const formattedMessages = paginatedMessages.map(message => ({
+      id: message.id,
+      conversationId: message.conversationId,
+      type: message.type,
+      sender: message.sender,
+      content: message.content,
+      timestamp: message.timestamp.toISOString(),
+      metadata: message.metadata || {},
+      parentMessageId: message.parentMessageId
+    }));
+    
+    return res.json({
+      success: true,
+      messages: formattedMessages,
+      total: messages.length,
+      offset: offsetNum,
+      limit: limitNum
+    });
+  } catch (error) {
+    console.error('Error getting conversation messages:', error);
+    return res.status(500).json({ 
+      success: false,
+      error: 'Failed to get conversation messages',
+      message: error instanceof Error ? error.message : String(error)
+    });
+  }
+});
+
+/**
+ * Create a new conversation
+ */
+router.post('/conversations', (req: Request, res: Response) => {
+  try {
+    const { title, agentIds, metadata } = req.body;
+    
+    if (!title || !agentIds || !Array.isArray(agentIds)) {
+      return res.status(400).json({
+        success: false,
+        error: 'Missing required fields',
+        message: 'title and agentIds (array) are required'
+      });
+    }
+    
+    const conversationId = conversationTracker.createConversation(
+      title,
+      agentIds,
+      metadata
+    );
+    
+    return res.json({
+      success: true,
+      message: 'Conversation created successfully',
+      conversationId
+    });
+  } catch (error) {
+    console.error('Error creating conversation:', error);
+    return res.status(500).json({ 
+      success: false,
+      error: 'Failed to create conversation',
+      message: error instanceof Error ? error.message : String(error)
+    });
+  }
+});
+
+/**
+ * Add a message to a conversation
+ */
+router.post('/conversations/:conversationId/messages', (req: Request, res: Response) => {
+  try {
+    const { conversationId } = req.params;
+    const { type, sender, content, metadata, parentMessageId } = req.body;
+    
+    if (!type || !sender || !content) {
+      return res.status(400).json({
+        success: false,
+        error: 'Missing required fields',
+        message: 'type, sender, and content are required'
+      });
+    }
+    
+    // Check if type is valid
+    if (!Object.values(MessageType).includes(type)) {
+      return res.status(400).json({
+        success: false,
+        error: 'Invalid message type',
+        message: `Type must be one of: ${Object.values(MessageType).join(', ')}`
+      });
+    }
+    
+    const messageId = conversationTracker.addMessage(
+      conversationId,
+      type,
+      sender,
+      content,
+      metadata,
+      parentMessageId
+    );
+    
+    if (!messageId) {
+      return res.status(404).json({
+        success: false,
+        error: 'Conversation not found',
+        message: `No conversation found with ID: ${conversationId}`
+      });
+    }
+    
+    return res.json({
+      success: true,
+      message: 'Message added successfully',
+      messageId
+    });
+  } catch (error) {
+    console.error('Error adding message to conversation:', error);
+    return res.status(500).json({ 
+      success: false,
+      error: 'Failed to add message to conversation',
+      message: error instanceof Error ? error.message : String(error)
+    });
+  }
+});
+
+// Export router
 export default router; 

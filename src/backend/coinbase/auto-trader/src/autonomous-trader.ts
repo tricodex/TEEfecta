@@ -1,5 +1,7 @@
 import { Agent } from './agent/index.js';
 import { getWebSocketService } from './services/websocket.js';
+import { getAgentQueueService, TaskType, TaskPriority } from './services/agent-queue.js';
+import { getConversationTracker, MessageType } from './services/conversation-tracker.js';
 import { v4 as uuidv4 } from 'uuid';
 
 /**
@@ -12,6 +14,10 @@ export class AutonomousTrader {
   private intervalMinutes: number;
   private riskLevel: string;
   private websocketService = getWebSocketService();
+  private queueService = getAgentQueueService();
+  private conversationTracker = getConversationTracker();
+  private agentId: string = 'autonomous-trader';
+  private currentConversationId: string | null = null;
   
   constructor(agent: Agent) {
     this.agent = agent;
@@ -19,11 +25,40 @@ export class AutonomousTrader {
     this.intervalMinutes = parseInt(process.env.AUTONOMOUS_INTERVAL_MINUTES || '60', 10);
     this.riskLevel = process.env.RISK_LEVEL || 'medium';
     
+    // Create initial conversation for the autonomous trader
+    this.createConversation();
+    
     if (this.isEnabled) {
       console.log(`Autonomous trader initialized with ${this.intervalMinutes} minute interval and ${this.riskLevel} risk level`);
     } else {
       console.log('Autonomous trader is disabled by configuration');
     }
+  }
+  
+  /**
+   * Create a new conversation for the autonomous trader
+   */
+  private createConversation(): void {
+    this.currentConversationId = this.conversationTracker.createConversation(
+      `Autonomous Trading Session - ${new Date().toISOString()}`,
+      [this.agentId],
+      { 
+        type: 'autonomous',
+        riskLevel: this.riskLevel,
+        intervalMinutes: this.intervalMinutes
+      }
+    );
+    
+    // Add initial system message
+    this.conversationTracker.addMessage(
+      this.currentConversationId,
+      MessageType.SYSTEM,
+      'system',
+      `Autonomous trading session initialized with ${this.intervalMinutes} minute interval and ${this.riskLevel} risk level.`,
+      { timestamp: new Date().toISOString() }
+    );
+    
+    console.log(`Created new conversation ${this.currentConversationId} for autonomous trader`);
   }
   
   /**
@@ -37,6 +72,17 @@ export class AutonomousTrader {
     
     console.log(`Starting autonomous trader with ${this.intervalMinutes} minute interval`);
     
+    // Log start to conversation
+    if (this.currentConversationId) {
+      this.conversationTracker.addMessage(
+        this.currentConversationId,
+        MessageType.SYSTEM,
+        'system',
+        `Autonomous trading session started. Will analyze the market every ${this.intervalMinutes} minutes.`,
+        { timestamp: new Date().toISOString() }
+      );
+    }
+    
     // Run immediately on start
     this.executeCycle();
     
@@ -48,7 +94,8 @@ export class AutonomousTrader {
     this.websocketService.broadcast('autonomous_started', {
       interval: this.intervalMinutes,
       riskLevel: this.riskLevel,
-      timestamp: new Date().toISOString()
+      timestamp: new Date().toISOString(),
+      conversationId: this.currentConversationId
     });
   }
   
@@ -61,9 +108,21 @@ export class AutonomousTrader {
       this.interval = null;
       console.log('Autonomous trader stopped');
       
+      // Log stop to conversation
+      if (this.currentConversationId) {
+        this.conversationTracker.addMessage(
+          this.currentConversationId,
+          MessageType.SYSTEM,
+          'system',
+          `Autonomous trading session stopped.`,
+          { timestamp: new Date().toISOString() }
+        );
+      }
+      
       // Broadcast stop event
       this.websocketService.broadcast('autonomous_stopped', {
-        timestamp: new Date().toISOString()
+        timestamp: new Date().toISOString(),
+        conversationId: this.currentConversationId
       });
     }
   }
@@ -75,10 +134,33 @@ export class AutonomousTrader {
     const cycleId = uuidv4().substring(0, 8);
     console.log(`Starting autonomous trading cycle ${cycleId}`);
     
+    // Create task in queue
+    const cycleTaskId = this.queueService.addTask(
+      TaskType.AUTONOMOUS_CYCLE,
+      this.agentId,
+      { cycleId },
+      TaskPriority.NORMAL,
+      true, // Allow frontend intervention
+      5 * 60 * 1000 // 5 minute timeout for frontend to intervene
+    );
+    
+    // Log cycle start to conversation
+    if (this.currentConversationId) {
+      this.conversationTracker.addMessage(
+        this.currentConversationId,
+        MessageType.SYSTEM,
+        'system',
+        `Starting trading cycle ${cycleId}.`,
+        { cycleId, taskId: cycleTaskId, timestamp: new Date().toISOString() }
+      );
+    }
+    
     // Broadcast cycle start
     this.websocketService.broadcast('cycle_started', {
       cycleId,
-      timestamp: new Date().toISOString()
+      taskId: cycleTaskId,
+      timestamp: new Date().toISOString(),
+      conversationId: this.currentConversationId
     });
     
     try {
@@ -87,44 +169,146 @@ export class AutonomousTrader {
         cycleId,
         stage: 'market_analysis',
         message: 'Gathering current market data',
-        timestamp: new Date().toISOString()
+        timestamp: new Date().toISOString(),
+        conversationId: this.currentConversationId
       });
+      
+      // Log to conversation
+      if (this.currentConversationId) {
+        this.conversationTracker.addMessage(
+          this.currentConversationId,
+          MessageType.AGENT,
+          this.agentId,
+          'Gathering current market data...',
+          { cycleId, stage: 'market_analysis', timestamp: new Date().toISOString() }
+        );
+      }
       
       // Simulate market data collection
       const marketData = await this.collectMarketData();
       
+      // Log market data to conversation
+      if (this.currentConversationId) {
+        this.conversationTracker.addMessage(
+          this.currentConversationId,
+          MessageType.AGENT,
+          this.agentId,
+          `Market data collected: ${Object.keys(marketData).length} assets analyzed.`,
+          { 
+            cycleId, 
+            stage: 'market_analysis_complete', 
+            marketData: JSON.stringify(marketData),
+            timestamp: new Date().toISOString() 
+          }
+        );
+      }
+      
       // 2. Analyze portfolio
       this.websocketService.broadcast('analysis_started', {
         cycleId,
-        timestamp: new Date().toISOString()
+        timestamp: new Date().toISOString(),
+        conversationId: this.currentConversationId
       });
+      
+      // Log to conversation
+      if (this.currentConversationId) {
+        this.conversationTracker.addMessage(
+          this.currentConversationId,
+          MessageType.AGENT,
+          this.agentId,
+          'Analyzing portfolio with current market conditions...',
+          { cycleId, stage: 'portfolio_analysis', timestamp: new Date().toISOString() }
+        );
+      }
       
       const portfolioAnalysis = await this.agent.analyzePortfolio({ assets: {} }, marketData);
       
       this.websocketService.broadcast('analysis_completed', {
         cycleId,
         analysis: portfolioAnalysis,
-        timestamp: new Date().toISOString()
+        timestamp: new Date().toISOString(),
+        conversationId: this.currentConversationId
       });
+      
+      // Log analysis to conversation
+      if (this.currentConversationId) {
+        this.conversationTracker.addMessage(
+          this.currentConversationId,
+          MessageType.AGENT,
+          this.agentId,
+          `Portfolio analysis complete: ${portfolioAnalysis.summary || 'No summary available'}`,
+          { 
+            cycleId, 
+            stage: 'portfolio_analysis_complete', 
+            analysis: JSON.stringify(portfolioAnalysis),
+            timestamp: new Date().toISOString() 
+          }
+        );
+      }
       
       // 3. Make trading decision
       this.websocketService.broadcast('agent_thinking', {
         cycleId,
         stage: 'decision_making',
         message: 'Making trading decisions based on analysis',
-        timestamp: new Date().toISOString()
+        timestamp: new Date().toISOString(),
+        conversationId: this.currentConversationId
       });
+      
+      // Log to conversation
+      if (this.currentConversationId) {
+        this.conversationTracker.addMessage(
+          this.currentConversationId,
+          MessageType.AGENT,
+          this.agentId,
+          'Making trading decisions based on portfolio analysis...',
+          { cycleId, stage: 'decision_making', timestamp: new Date().toISOString() }
+        );
+      }
       
       // Generate trading decision
       const tradingDecision = await this.generateTradingDecision(portfolioAnalysis);
+      
+      // Log decision to conversation
+      if (this.currentConversationId) {
+        this.conversationTracker.addMessage(
+          this.currentConversationId,
+          MessageType.AGENT,
+          this.agentId,
+          `Trading decision: ${tradingDecision.shouldTrade ? 'Execute trade' : 'No trade'} - ${tradingDecision.reason}`,
+          { 
+            cycleId, 
+            stage: 'decision_complete', 
+            decision: JSON.stringify(tradingDecision),
+            timestamp: new Date().toISOString() 
+          }
+        );
+      }
       
       // 4. Execute trades if needed
       if (tradingDecision && tradingDecision.shouldTrade) {
         this.websocketService.broadcast('trade_started', {
           cycleId,
           tradeDetails: tradingDecision.trade,
-          timestamp: new Date().toISOString()
+          timestamp: new Date().toISOString(),
+          conversationId: this.currentConversationId
         });
+        
+        // Log to conversation
+        if (this.currentConversationId) {
+          this.conversationTracker.addMessage(
+            this.currentConversationId,
+            MessageType.AGENT,
+            this.agentId,
+            `Executing trade: ${tradingDecision.trade.tradeType} ${tradingDecision.trade.amount} ${tradingDecision.trade.fromAsset} to ${tradingDecision.trade.toAsset}`,
+            { 
+              cycleId, 
+              stage: 'trade_execution', 
+              trade: JSON.stringify(tradingDecision.trade),
+              timestamp: new Date().toISOString() 
+            }
+          );
+        }
         
         const tradeResult = await this.agent.executeTrade(
           tradingDecision.trade.tradeType,
@@ -136,31 +320,98 @@ export class AutonomousTrader {
         this.websocketService.broadcast('trade_completed', {
           cycleId,
           tradeResult,
-          timestamp: new Date().toISOString()
+          timestamp: new Date().toISOString(),
+          conversationId: this.currentConversationId
         });
+        
+        // Log result to conversation
+        if (this.currentConversationId) {
+          this.conversationTracker.addMessage(
+            this.currentConversationId,
+            MessageType.AGENT,
+            this.agentId,
+            `Trade execution complete: ${tradeResult.success ? 'Successful' : 'Failed'} - ${tradeResult.message || ''}`,
+            { 
+              cycleId, 
+              stage: 'trade_complete', 
+              result: JSON.stringify(tradeResult),
+              timestamp: new Date().toISOString() 
+            }
+          );
+        }
       } else {
         this.websocketService.broadcast('no_trade_decision', {
           cycleId,
           reason: tradingDecision ? tradingDecision.reason : 'No trading opportunity identified',
-          timestamp: new Date().toISOString()
+          timestamp: new Date().toISOString(),
+          conversationId: this.currentConversationId
         });
+        
+        // Log no-trade to conversation
+        if (this.currentConversationId) {
+          this.conversationTracker.addMessage(
+            this.currentConversationId,
+            MessageType.AGENT,
+            this.agentId,
+            `No trade executed: ${tradingDecision ? tradingDecision.reason : 'No trading opportunity identified'}`,
+            { 
+              cycleId, 
+              stage: 'no_trade', 
+              reason: tradingDecision ? tradingDecision.reason : 'No trading opportunity identified',
+              timestamp: new Date().toISOString() 
+            }
+          );
+        }
       }
       
       // 5. Complete cycle
       this.websocketService.broadcast('cycle_completed', {
         cycleId,
         result: 'success',
-        timestamp: new Date().toISOString()
+        timestamp: new Date().toISOString(),
+        conversationId: this.currentConversationId
       });
+      
+      // Complete the queue task
+      this.queueService.completeTask(cycleTaskId, { cycleId, result: 'success' });
+      
+      // Log cycle completion to conversation
+      if (this.currentConversationId) {
+        this.conversationTracker.addMessage(
+          this.currentConversationId,
+          MessageType.SYSTEM,
+          'system',
+          `Trading cycle ${cycleId} completed successfully.`,
+          { 
+            cycleId, 
+            taskId: cycleTaskId,
+            status: 'complete',
+            timestamp: new Date().toISOString() 
+          }
+        );
+      }
       
       console.log(`Autonomous trading cycle ${cycleId} completed successfully`);
     } catch (error) {
       console.error(`Error in autonomous trading cycle ${cycleId}:`, error);
       
+      // Log error to conversation
+      if (this.currentConversationId) {
+        this.conversationTracker.addErrorMessage(
+          this.currentConversationId,
+          this.agentId,
+          `Error in trading cycle ${cycleId}: ${error instanceof Error ? error.message : String(error)}`
+        );
+      }
+      
+      // Mark task as failed
+      this.queueService.failTask(cycleTaskId, error instanceof Error ? error.message : String(error));
+      
       this.websocketService.broadcast('cycle_error', {
         cycleId,
         error: error instanceof Error ? error.message : String(error),
-        timestamp: new Date().toISOString()
+        timestamp: new Date().toISOString(),
+        conversationId: this.currentConversationId
       });
     }
   }
@@ -199,55 +450,47 @@ export class AutonomousTrader {
       'WETH': 3000,
       'MATIC': 0.80,
       'LINK': 15,
-      'UNI': 8
     };
     
-    return prices[asset] || 10; // Default price for unknown assets
+    return prices[asset] || 1; // Default to 1 if asset not found
   }
   
   /**
    * Generate a trading decision based on portfolio analysis
    */
   private async generateTradingDecision(analysis: any): Promise<any> {
-    // In a real implementation, this would use more sophisticated logic
-    // This is a simplified example that makes random decisions
-    const shouldTrade = Math.random() > 0.7; // 30% chance of trading
+    // This should use the agent to make a decision
+    // For now, we'll implement a simple mock decision maker
     
-    if (!shouldTrade) {
+    // 70% chance of no trade to avoid excessive trading in mock mode
+    if (Math.random() < 0.7) {
       return {
         shouldTrade: false,
-        reason: 'Market conditions not favorable for trading'
+        reason: 'Market conditions do not warrant a trade at this time.'
       };
     }
     
-    // For demo purposes, create a simple trade
-    // In a real implementation, this would be based on the analysis
-    const assets = ['ETH', 'BTC', 'USDC', 'WETH'];
+    // Mock trade decision
+    const assets = ['ETH', 'BTC', 'USDC', 'WETH', 'MATIC'];
     const fromAsset = assets[Math.floor(Math.random() * assets.length)];
     
-    let toAsset;
-    do {
+    // Select a different "to" asset
+    let toAsset = fromAsset;
+    while (toAsset === fromAsset) {
       toAsset = assets[Math.floor(Math.random() * assets.length)];
-    } while (toAsset === fromAsset);
-    
-    // Generate a random amount based on risk level
-    let maxPercentage = 0.01; // 1% for low risk
-    if (this.riskLevel === 'medium') {
-      maxPercentage = 0.05; // 5% for medium risk
-    } else if (this.riskLevel === 'high') {
-      maxPercentage = 0.1; // 10% for high risk
     }
     
-    const amount = Math.random() * maxPercentage * this.getBasePrice(fromAsset);
+    const tradeType = Math.random() > 0.5 ? 'buy' : 'sell';
+    const amount = parseFloat((Math.random() * 0.5).toFixed(4)); // Small amount for mock
     
     return {
       shouldTrade: true,
-      reason: 'Trading opportunity identified',
+      reason: 'Favorable market conditions identified for this trade.',
       trade: {
-        tradeType: 'swap',
+        tradeType,
         fromAsset,
         toAsset,
-        amount: parseFloat(amount.toFixed(6))
+        amount
       }
     };
   }

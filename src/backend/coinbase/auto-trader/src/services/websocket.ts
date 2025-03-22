@@ -1,13 +1,14 @@
-import * as WebSocket from 'ws';
+import { Server as SocketIOServer, Socket } from 'socket.io';
 import * as http from 'http';
 import { v4 as uuidv4 } from 'uuid';
 
 /**
  * WebSocketService provides real-time communication for the auto-trader
+ * using Socket.IO for compatibility with the frontend
  */
 export class WebSocketService {
-  private wss: WebSocket.Server | null = null;
-  private clients: Map<string, WebSocketClient> = new Map();
+  private io: SocketIOServer | null = null;
+  private clients: Map<string, Socket> = new Map();
   private isEnabled: boolean;
   
   constructor() {
@@ -32,25 +33,24 @@ export class WebSocketService {
       return;
     }
     
-    const port = parseInt(process.env.WS_PORT || '3201', 10);
-    
     try {
-      this.wss = new WebSocket.Server({ 
-        server,
-        path: '/ws'
+      this.io = new SocketIOServer(server, {
+        cors: {
+          origin: "*", // For development, allow all origins
+          methods: ["GET", "POST"]
+        }
       });
       
-      console.log(`WebSocket server attached to HTTP server on path /ws`);
+      console.log('Socket.IO server attached to HTTP server');
       
-      this.wss.on('connection', (ws: WebSocket) => {
-        const clientId = uuidv4();
-        const client = new WebSocketClient(clientId, ws);
-        this.clients.set(clientId, client);
+      this.io.on('connection', (socket: Socket) => {
+        const clientId = socket.id;
+        this.clients.set(clientId, socket);
         
         console.log(`WebSocket client connected: ${clientId}`);
         
         // Welcome message
-        client.send('system', {
+        socket.emit('system', {
           message: 'Connected to 4g3n7 Auto Trader WebSocket server',
           clientId
         });
@@ -63,7 +63,7 @@ export class WebSocketService {
         });
         
         // Handle client disconnect
-        ws.on('close', () => {
+        socket.on('disconnect', () => {
           console.log(`WebSocket client disconnected: ${clientId}`);
           this.clients.delete(clientId);
           
@@ -75,29 +75,25 @@ export class WebSocketService {
           });
         });
         
-        // Handle client messages (we don't expect many, but might be useful for subscriptions)
-        ws.on('message', (message: string) => {
-          try {
-            const data = JSON.parse(message.toString());
-            
-            if (data.type === 'subscribe' && data.topic) {
-              client.subscribeToTopic(data.topic);
-              client.send('subscription_confirmed', { topic: data.topic });
-            } else if (data.type === 'unsubscribe' && data.topic) {
-              client.unsubscribeFromTopic(data.topic);
-              client.send('unsubscription_confirmed', { topic: data.topic });
-            }
-          } catch (error) {
-            console.error(`Error processing client message: ${error}`);
-            client.send('error', { 
-              message: 'Invalid message format',
-              error: error instanceof Error ? error.message : String(error)
-            });
+        // Handle custom events
+        socket.on('subscribe', (data) => {
+          if (data && data.topic) {
+            console.log(`Client ${clientId} subscribed to topic: ${data.topic}`);
+            socket.join(data.topic);
+            socket.emit('subscription_confirmed', { topic: data.topic });
+          }
+        });
+        
+        socket.on('unsubscribe', (data) => {
+          if (data && data.topic) {
+            console.log(`Client ${clientId} unsubscribed from topic: ${data.topic}`);
+            socket.leave(data.topic);
+            socket.emit('unsubscription_confirmed', { topic: data.topic });
           }
         });
       });
     } catch (error) {
-      console.error(`Error initializing WebSocket server: ${error}`);
+      console.error(`Error initializing Socket.IO server: ${error}`);
     }
   }
   
@@ -108,21 +104,16 @@ export class WebSocketService {
    * @param data - Event data
    */
   public broadcast(eventType: string, data: any): void {
-    if (!this.isEnabled || !this.wss) return;
+    if (!this.isEnabled || !this.io) return;
     
-    const message = JSON.stringify({
-      type: eventType,
-      data,
-      timestamp: new Date().toISOString()
-    });
+    const event = {
+      ...data,
+      timestamp: data.timestamp || new Date().toISOString()
+    };
     
     console.log(`Broadcasting ${eventType} event to ${this.clients.size} clients`);
     
-    this.clients.forEach(client => {
-      if (client.shouldReceiveEvent(eventType)) {
-        client.rawSend(message);
-      }
-    });
+    this.io.emit(eventType, event);
   }
   
   /**
@@ -133,11 +124,16 @@ export class WebSocketService {
    * @param data - Event data
    */
   public sendToClient(clientId: string, eventType: string, data: any): void {
-    if (!this.isEnabled) return;
+    if (!this.isEnabled || !this.io) return;
     
     const client = this.clients.get(clientId);
     if (client) {
-      client.send(eventType, data);
+      const event = {
+        ...data,
+        timestamp: data.timestamp || new Date().toISOString()
+      };
+      
+      client.emit(eventType, event);
     }
   }
   
@@ -153,93 +149,6 @@ export class WebSocketService {
    */
   public isWebSocketEnabled(): boolean {
     return this.isEnabled;
-  }
-}
-
-/**
- * WebSocketClient represents a connected client
- */
-class WebSocketClient {
-  private id: string;
-  private ws: WebSocket;
-  private subscriptions: Set<string> = new Set(['all']); // Default subscription to all events
-  
-  constructor(id: string, ws: WebSocket) {
-    this.id = id;
-    this.ws = ws;
-  }
-  
-  /**
-   * Send a formatted message to the client
-   * 
-   * @param eventType - Type of event
-   * @param data - Event data
-   */
-  public send(eventType: string, data: any): void {
-    if (this.ws.readyState !== WebSocket.OPEN) return;
-    
-    try {
-      const message = JSON.stringify({
-        type: eventType,
-        data,
-        timestamp: new Date().toISOString()
-      });
-      
-      this.ws.send(message);
-    } catch (error) {
-      console.error(`Error sending WebSocket message: ${error}`);
-    }
-  }
-  
-  /**
-   * Send a raw message to the client
-   * 
-   * @param message - Message to send
-   */
-  public rawSend(message: string): void {
-    if (this.ws.readyState !== WebSocket.OPEN) return;
-    
-    try {
-      this.ws.send(message);
-    } catch (error) {
-      console.error(`Error sending raw WebSocket message: ${error}`);
-    }
-  }
-  
-  /**
-   * Subscribe to a topic
-   * 
-   * @param topic - Topic to subscribe to
-   */
-  public subscribeToTopic(topic: string): void {
-    this.subscriptions.add(topic);
-  }
-  
-  /**
-   * Unsubscribe from a topic
-   * 
-   * @param topic - Topic to unsubscribe from
-   */
-  public unsubscribeFromTopic(topic: string): void {
-    if (topic !== 'all') { // Don't allow unsubscribing from 'all'
-      this.subscriptions.delete(topic);
-    }
-  }
-  
-  /**
-   * Check if the client should receive an event
-   * 
-   * @param eventType - Type of event
-   */
-  public shouldReceiveEvent(eventType: string): boolean {
-    return this.subscriptions.has('all') || this.subscriptions.has(eventType);
-  }
-  
-  /**
-   * Get the client ID
-   */
-  public getId(): string {
-    return this.id;
   }
 }
 

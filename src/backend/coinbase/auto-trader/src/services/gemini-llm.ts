@@ -2,6 +2,9 @@ import { LLMService } from './llm-service.js';
 import * as dotenv from 'dotenv';
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import axios from 'axios';
+import { getWebSocketService } from './websocket.js';
+import { getConversationTracker, MessageType } from './conversation-tracker.js';
+import { v4 as uuidv4 } from 'uuid';
 
 // Load environment variables
 dotenv.config();
@@ -14,6 +17,10 @@ export class GeminiLLMService implements LLMService {
   private model: any;
   private initialized: boolean = false;
   private tavilyApiKey: string | undefined;
+  private websocketService = getWebSocketService();
+  private conversationTracker = getConversationTracker();
+  private activeConversationId: string | null = null;
+  private agentId: string = 'gemini-agent'; // Default agent ID
 
   constructor() {
     // Get API key from environment
@@ -33,6 +40,58 @@ export class GeminiLLMService implements LLMService {
     if (this.tavilyApiKey) {
       console.log('Web search capability enabled with Tavily API');
     }
+    
+    // Create a new conversation for this LLM service
+    this.activeConversationId = this.conversationTracker.createConversation(
+      'Gemini Agent Conversation',
+      [this.agentId],
+      { modelName: 'gemini-2.0-flash' }
+    );
+  }
+  
+  /**
+   * Set the agent ID for this LLM service
+   * 
+   * @param agentId - The agent ID to use
+   */
+  public setAgentId(agentId: string): void {
+    this.agentId = agentId;
+    
+    // Update the conversation if it exists
+    if (this.activeConversationId) {
+      const conversation = this.conversationTracker.getConversation(this.activeConversationId);
+      if (conversation) {
+        conversation.agentIds = [agentId];
+      }
+    }
+  }
+  
+  /**
+   * Get the current conversation ID
+   * 
+   * @returns - The current conversation ID
+   */
+  public getConversationId(): string | null {
+    return this.activeConversationId;
+  }
+  
+  /**
+   * Create a new conversation
+   * 
+   * @param title - Title of the conversation
+   * @param metadata - Additional metadata
+   * @returns - The new conversation ID
+   */
+  public createNewConversation(title?: string, metadata?: Record<string, any>): string {
+    const conversationTitle = title || `${this.agentId} Conversation ${new Date().toISOString()}`;
+    
+    this.activeConversationId = this.conversationTracker.createConversation(
+      conversationTitle,
+      [this.agentId],
+      metadata
+    );
+    
+    return this.activeConversationId;
   }
   
   /**
@@ -50,162 +109,378 @@ export class GeminiLLMService implements LLMService {
     try {
       console.log(`Performing web search for: ${query}`);
       
-      const response = await axios.post('https://api.tavily.com/search', {
-        api_key: this.tavilyApiKey,
-        query: query,
-        search_depth: 'basic',
-        include_domains: [],
-        exclude_domains: [],
-        max_results: 5
+      // Add search query to conversation
+      if (this.activeConversationId) {
+        this.conversationTracker.addMessage(
+          this.activeConversationId,
+          MessageType.SYSTEM,
+          'web-search',
+          `Searching for: ${query}`,
+          { searchType: 'tavily' }
+        );
+      }
+      
+      const response = await axios.post(
+        'https://api.tavily.com/search',
+        {
+          api_key: this.tavilyApiKey,
+          query: query,
+          search_depth: 'basic',
+          include_domains: [],
+          exclude_domains: [],
+          max_results: 5
+        },
+        {
+          headers: {
+            'Content-Type': 'application/json'
+          }
+        }
+      );
+      
+      const results = response.data.results;
+      
+      console.log(`Found ${results.length} search results`);
+      
+      // Format results
+      let formattedResults = `Web Search Results for "${query}":\n\n`;
+      
+      results.forEach((result: any, index: number) => {
+        formattedResults += `[${index + 1}] "${result.title}"\n`;
+        formattedResults += `URL: ${result.url}\n`;
+        formattedResults += `Content: ${result.content.substring(0, 300)}...\n\n`;
       });
       
-      if (response.data && response.data.results) {
-        const results = response.data.results;
-        let searchResults = `Web Search Results for "${query}":\n\n`;
-        
-        results.forEach((result: any, index: number) => {
-          searchResults += `[${index + 1}] ${result.title}\n`;
-          searchResults += `URL: ${result.url}\n`;
-          searchResults += `${result.content.substring(0, 200)}...\n\n`;
-        });
-        
-        console.log(`Found ${results.length} search results`);
-        return searchResults;
-      } else {
-        return `[No relevant search results found for: ${query}]`;
+      // Add search results to conversation
+      if (this.activeConversationId) {
+        this.conversationTracker.addMessage(
+          this.activeConversationId,
+          MessageType.SYSTEM,
+          'web-search',
+          formattedResults,
+          { 
+            searchType: 'tavily',
+            resultCount: results.length,
+            query
+          }
+        );
       }
+      
+      // Broadcast search results via WebSocket
+      this.websocketService.broadcast('web_search_results', {
+        query,
+        resultCount: results.length,
+        timestamp: new Date().toISOString()
+      });
+      
+      return formattedResults;
     } catch (error) {
       console.error('Error performing web search:', error);
-      return `[Error performing web search: ${error instanceof Error ? error.message : String(error)}]`;
+      
+      // Add error to conversation
+      if (this.activeConversationId) {
+        this.conversationTracker.addErrorMessage(
+          this.activeConversationId,
+          'Web search failed',
+          error,
+          { query }
+        );
+      }
+      
+      return `[Web search error: ${error instanceof Error ? error.message : String(error)}]`;
     }
   }
   
   /**
-   * Generate text using a web search augmented prompt
+   * Generate text with web search enhancement
    * 
-   * @param prompt - The original prompt
-   * @param searchQuery - Optional explicit search query, if not provided will attempt to extract one
-   * @returns - Generated text with web search context
+   * @param prompt - The text prompt to generate from
+   * @param searchQuery - Optional search query override
+   * @returns - The generated text
    */
   public async generateTextWithWebSearch(prompt: string, searchQuery?: string): Promise<string> {
     try {
-      const query = searchQuery || this.extractSearchQuery(prompt);
-      let enhancedPrompt = prompt;
+      // Extract search query from prompt if not provided
+      const query = searchQuery || this.extractSearchQuery(prompt) || '';
       
-      if (query) {
-        const searchResults = await this.webSearch(query);
-        enhancedPrompt = `${searchResults}\n\n${prompt}\n\nIncorporate the above web search results if relevant to your response.`;
-        console.log('Enhanced prompt with web search results');
+      if (!query) {
+        console.log('No search query extracted or provided, falling back to regular generation');
+        return this.generateText(prompt);
       }
       
-      return await this.generateText(enhancedPrompt);
+      // Perform web search
+      const searchResults = await this.webSearch(query);
+      console.log('Enhanced prompt with web search results');
+      
+      // Combine search results with original prompt
+      const enhancedPrompt = `${searchResults}\n\n${prompt}`;
+      
+      // Generate text with enhanced prompt
+      return this.generateText(enhancedPrompt, { enhancedWithSearch: true, searchQuery: query });
     } catch (error) {
-      console.error('Error generating text with web search:', error);
-      return await this.generateText(prompt); // Fallback to regular generation
+      console.error('Error in generateTextWithWebSearch:', error);
+      
+      // Add error to conversation
+      if (this.activeConversationId) {
+        this.conversationTracker.addErrorMessage(
+          this.activeConversationId,
+          'Text generation with web search failed',
+          error
+        );
+      }
+      
+      // Fall back to regular generation
+      return this.generateText(prompt);
     }
   }
   
   /**
    * Extract a search query from a prompt
    * 
-   * @param prompt - The prompt to analyze
-   * @returns - Extracted search query or null if none found
+   * @param prompt - The prompt to extract from
+   * @returns - The extracted search query or null
    */
   private extractSearchQuery(prompt: string): string | null {
-    // Simple heuristic: Look for questions about prices, markets, or recent events
-    const marketPatterns = [
-      /current price of (\w+)/i,
-      /(\w+) price/i,
-      /market (conditions|trends|status)/i,
-      /recent (news|events|developments)/i,
-      /latest (information|data) (on|about) (\w+)/i
-    ];
+    // Look for patterns like [SEARCH:...] or "search for X"
+    const searchTagMatch = prompt.match(/\[SEARCH:(.*?)\]/i);
+    if (searchTagMatch && searchTagMatch[1]) {
+      return searchTagMatch[1].trim();
+    }
     
-    for (const pattern of marketPatterns) {
-      const match = prompt.match(pattern);
-      if (match) {
-        const baseQuery = match[0];
-        const specificAsset = match[1] || match[3];
-        
-        if (specificAsset) {
-          return `${specificAsset} cryptocurrency price and market analysis`;
-        }
-        return `${baseQuery} cryptocurrency market`;
+    const searchForMatch = prompt.match(/search for ["']?(.*?)["']?[.,;]/i);
+    if (searchForMatch && searchForMatch[1]) {
+      return searchForMatch[1].trim();
+    }
+    
+    // For crypto analysis, try to extract relevant tokens
+    if (prompt.toLowerCase().includes('crypto') || 
+        prompt.toLowerCase().includes('token') || 
+        prompt.toLowerCase().includes('blockchain')) {
+      
+      const tokens = prompt.match(/\b(ETH|BTC|USDC|MATIC|SOL|DOT|ADA|XRP|DOGE|SHIB|LINK|UNI|AVAX)\b/g);
+      if (tokens && tokens.length > 0) {
+        return `latest cryptocurrency market trends ${tokens.join(' ')}`;
       }
+      
+      return 'latest cryptocurrency market trends';
     }
     
     return null;
   }
   
   /**
-   * Generate text using Google Gemini
+   * Generate text from a prompt
    * 
-   * @param prompt - The prompt to generate text from
-   * @returns The generated text
+   * @param prompt - The text prompt to generate from
+   * @param metadata - Additional metadata to include with the conversation
+   * @returns - The generated text
    */
-  async generateText(prompt: string): Promise<string> {
+  async generateText(prompt: string, metadata?: Record<string, any>): Promise<string> {
     if (!this.initialized) {
-      throw new Error('Gemini API client not initialized');
+      throw new Error('GeminiLLMService not initialized');
     }
     
     try {
-      console.log(`Generating text with Gemini for prompt: ${prompt.substring(0, 50)}...`);
+      // Truncate the prompt for logging
+      const truncatedPrompt = prompt.length > 100 ? prompt.substring(0, 100) + '...' : prompt;
+      console.log(`Generating text with Gemini for prompt: ${truncatedPrompt}`);
+      
+      // Broadcast generation started
+      this.websocketService.broadcast('llm_generation_started', {
+        provider: 'gemini',
+        model: 'gemini-2.0-flash',
+        promptLength: prompt.length,
+        agentId: this.agentId,
+        timestamp: new Date().toISOString()
+      });
+      
+      // Generate content
       const result = await this.model.generateContent(prompt);
-      return result.response.text();
+      const text = result.response.text();
+      
+      // Ensure we have a conversation to add to
+      if (!this.activeConversationId) {
+        this.createNewConversation();
+      }
+      
+      // Add to conversation tracker
+      this.conversationTracker.addLLMResponse(
+        this.activeConversationId!,
+        this.agentId,
+        prompt,
+        text,
+        {
+          ...metadata,
+          model: 'gemini-2.0-flash',
+          provider: 'gemini',
+          generationId: uuidv4()
+        }
+      );
+      
+      // Broadcast generation completed
+      this.websocketService.broadcast('llm_generation_completed', {
+        provider: 'gemini',
+        model: 'gemini-2.0-flash',
+        promptLength: prompt.length,
+        responseLength: text.length,
+        agentId: this.agentId,
+        timestamp: new Date().toISOString()
+      });
+      
+      return text;
     } catch (error) {
       console.error('Error generating text with Gemini:', error);
-      throw new Error(`Gemini generation failed: ${error instanceof Error ? error.message : String(error)}`);
+      
+      // Add error to conversation
+      if (this.activeConversationId) {
+        this.conversationTracker.addErrorMessage(
+          this.activeConversationId,
+          'Text generation failed',
+          error
+        );
+      }
+      
+      // Broadcast generation error
+      this.websocketService.broadcast('llm_generation_error', {
+        provider: 'gemini',
+        model: 'gemini-2.0-flash',
+        error: error instanceof Error ? error.message : String(error),
+        agentId: this.agentId,
+        timestamp: new Date().toISOString()
+      });
+      
+      throw error;
     }
   }
   
   /**
-   * Generate structured data using Google Gemini
+   * Generate structured data from a prompt
    * 
-   * @param prompt - The prompt to generate data from
-   * @param schema - The schema for the generated data
-   * @returns The generated structured data
+   * @param prompt - The text prompt to generate from
+   * @param schema - JSON schema of the expected result
+   * @returns - The generated structured data
    */
   async generateStructuredData<T>(prompt: string, schema: any): Promise<T> {
     if (!this.initialized) {
-      throw new Error('Gemini API client not initialized');
+      throw new Error('GeminiLLMService not initialized');
     }
     
     try {
-      // Add instructions to generate JSON according to schema
-      const jsonPrompt = `${prompt}\n\nPlease respond with valid JSON that follows this schema: ${JSON.stringify(schema)}`;
+      // Truncate the prompt for logging
+      const truncatedPrompt = prompt.length > 100 ? prompt.substring(0, 100) + '...' : prompt;
+      console.log(`Generating structured data with Gemini: ${truncatedPrompt}`);
       
-      console.log(`Generating structured data with Gemini: ${jsonPrompt.substring(0, 50)}...`);
+      // Broadcast generation started
+      this.websocketService.broadcast('llm_generation_started', {
+        provider: 'gemini',
+        model: 'gemini-2.0-flash',
+        promptLength: prompt.length,
+        isStructured: true,
+        agentId: this.agentId,
+        timestamp: new Date().toISOString()
+      });
       
-      const result = await this.model.generateContent(jsonPrompt);
-      const text = result.response.text();
+      // Add to conversation tracker
+      if (this.activeConversationId) {
+        this.conversationTracker.addMessage(
+          this.activeConversationId,
+          MessageType.AGENT,
+          this.agentId,
+          prompt,
+          {
+            isStructuredRequest: true,
+            schema: JSON.stringify(schema)
+          }
+        );
+      }
       
-      // Extract JSON from the response
-      const jsonMatch = text.match(/```json\n([\s\S]*?)\n```/) || text.match(/```\n([\s\S]*?)\n```/) || [null, text];
-      const jsonText = jsonMatch[1] ? jsonMatch[1].trim() : text.trim();
+      // Generate content
+      const generationConfig = {
+        response_mime_type: "application/json", 
+        temperature: 0.1
+      };
+  
+      const result = await this.model.generateContent({
+        contents: [{ parts: [{ text: prompt }] }],
+        generation_config: generationConfig,
+      });
       
-      return JSON.parse(jsonText) as T;
+      let jsonStr = result.response.text();
+      
+      // Sometimes Gemini wraps the JSON in ```json or ```
+      if (jsonStr.includes('```')) {
+        jsonStr = jsonStr.split('```')[1].replace('json', '').trim();
+      }
+      
+      // Parse JSON
+      const jsonData = JSON.parse(jsonStr) as T;
+      
+      // Add to conversation tracker
+      if (this.activeConversationId) {
+        this.conversationTracker.addMessage(
+          this.activeConversationId,
+          MessageType.LLM,
+          'llm',
+          JSON.stringify(jsonData, null, 2),
+          {
+            model: 'gemini-2.0-flash',
+            provider: 'gemini',
+            isStructuredResponse: true,
+            generationId: uuidv4()
+          }
+        );
+      }
+      
+      // Broadcast generation completed
+      this.websocketService.broadcast('llm_generation_completed', {
+        provider: 'gemini',
+        model: 'gemini-2.0-flash',
+        promptLength: prompt.length,
+        isStructured: true,
+        agentId: this.agentId,
+        timestamp: new Date().toISOString()
+      });
+      
+      return jsonData;
     } catch (error) {
       console.error('Error generating structured data with Gemini:', error);
-      throw new Error(`Gemini structured data generation failed: ${error instanceof Error ? error.message : String(error)}`);
+      
+      // Add error to conversation
+      if (this.activeConversationId) {
+        this.conversationTracker.addErrorMessage(
+          this.activeConversationId,
+          'Structured data generation failed',
+          error
+        );
+      }
+      
+      // Broadcast generation error
+      this.websocketService.broadcast('llm_generation_error', {
+        provider: 'gemini',
+        model: 'gemini-2.0-flash',
+        isStructured: true,
+        error: error instanceof Error ? error.message : String(error),
+        agentId: this.agentId,
+        timestamp: new Date().toISOString()
+      });
+      
+      throw error;
     }
   }
   
   /**
-   * Check if the Gemini API client is healthy
+   * Check if the LLM service is healthy
    * 
-   * @returns True if the service is healthy, false otherwise
+   * @returns - True if healthy
    */
   async healthCheck(): Promise<boolean> {
-    if (!this.initialized) {
-      return false;
-    }
-    
     try {
-      // Simple health check by generating a short response
-      const result = await this.model.generateContent('Hello, are you operational?');
-      return result.response.text().length > 0;
+      const result = await this.model.generateContent('Hello, are you working properly? Just say "yes" if you are.');
+      const text = result.response.text();
+      
+      // Check if response contains yes
+      return text.toLowerCase().includes('yes');
     } catch (error) {
-      console.error('Gemini API health check failed:', error);
+      console.error('Gemini health check failed:', error);
       return false;
     }
   }

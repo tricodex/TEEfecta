@@ -1,137 +1,135 @@
-# 4g3n7: Secure Autonomous Trading Agent
+# Auto Trader
 
-4g3n7 is an advanced autonomous trading agent system that implements a dual-agent architecture in a Trusted Execution Environment (TEE) using Marlin Oyster CVM, with transparent memory storage via Recall Network.
+An autonomous trading agent that analyzes market data and executes trades on behalf of users. This component is part of the TEEfecta Marlin CVM deployment.
 
 ## Features
 
-- **Dual-Agent Architecture**: Combines a traditional agent and an AgentKit-based agent for enhanced trading decisions
-- **Marlin Oyster CVM Integration**: Secure computation in a Trusted Execution Environment
-- **Recall Network Integration**: Transparent memory storage for all decisions and reasoning
-- **Configurable Agents**: Use traditional agent, AgentKit agent, or a coordinated approach
-- **Multiple LLM Support**: Works with Azure OpenAI, Google Gemini, or a fallback mock implementation
-- **Secure Attestation**: Cryptographic verification of the execution environment
-- **Autonomous Trading**: Optional autonomous trading with configurable risk levels
+- AI-powered trade analysis and execution
+- Real-time market data integration
+- WebSocket-based real-time client updates
+- In-memory and persistent storage options
+- Docker-based deployment
 
-## Setup
+## Prerequisites
 
-### Prerequisites
+- [Docker](https://www.docker.com/get-started)
+- [Bun](https://bun.sh/docs/installation) (for local development)
+- [Coinbase API credentials](https://docs.cloud.coinbase.com/exchange/docs/auth)
+- [Google Gemini API key](https://ai.google.dev/docs/gemini-api/setup)
 
-- Node.js 18+
-- Bun 1.0+
-- Marlin oyster-cvm CLI
-- Recall CLI (optional, for direct interaction with Recall Network)
-- CDP API key (for production deployment)
+## Getting Started
 
-### Installation
+### Environment Setup
 
-1. Clone the repository
-2. Install dependencies:
-   ```bash
-   cd /path/to/repo
-   bun install
-   ```
-3. Create a `.env` file based on `.env.example`
-4. Build the application:
-   ```bash
-   bash scripts/build-ncheck.sh
-   ```
+Create a `.env` file in the root directory with the following variables:
 
-### Development
+```
+# Server configuration
+PORT=3222
+NODE_ENV=production
 
-Run the application in development mode:
+# Feature flags
+ENABLE_AGENTKIT=true
+ENABLE_COLLABORATION=true
+USE_MOCK_WALLET=false
+USE_MOCK_SEARCH=false
 
-```bash
-bun run dev
+# LLM configuration
+PREFERRED_LLM_PROVIDER=gemini
+GEMINI_API_KEY=your_gemini_api_key
+
+# Storage configuration
+RECALL_MEMORY_MODE=in-memory
 ```
 
-### Testing
+### Docker Setup
 
-Test the application components:
+We provide several helper scripts to manage your Docker deployment:
 
-```bash
-# Test basic functionality
-bun run src/test-agent.ts
-
-# Run all tests
-bun test
-```
-
-## Deployment
-
-### Local Deployment
+#### 1. Build and Run Container
 
 ```bash
-# Build the application
-bash scripts/build.sh
-
-# Run the application
-bun start
+./run-docker.sh
 ```
 
-### Marlin CVM Deployment
+This script will:
+- Build the Docker image
+- Create necessary data directories
+- Start the container with appropriate port mappings
+
+#### 2. Check Docker Health
 
 ```bash
-# Deploy to Marlin (requires wallet private key)
-bash scripts/deploy.sh --wallet-key your_wallet_private_key --duration 60
+./docker-health-check.sh
 ```
 
-### Verification
+This script checks:
+- If Docker is running
+- If the container exists and is running
+- Port mappings are correct
+- Service health status
+- Required environment variables
 
-After deployment, verify the attestation:
+### Local Development
 
+For local development without Docker:
+
+1. Install dependencies:
 ```bash
-bash scripts/verify-attestation.sh --ip <enclave-ip> --test
+bun install
 ```
 
-## Configuration
+2. Start the development server:
+```bash
+bun run src/index.ts
+```
 
-The application can be configured through environment variables:
+The server will be available at `http://localhost:3222`.
 
-- `ENABLE_AGENTKIT`: Enable AgentKit integration (true/false)
-- `ENABLE_COLLABORATION`: Enable collaboration between agents (true/false)
-- `PREFERRED_LLM_PROVIDER`: LLM provider (azure/gemini/mock)
-- `RECALL_PRIVATE_KEY`: Private key for Recall Network
-- `RECALL_BUCKET_ALIAS`: Bucket alias for Recall Network
-- `MARLIN_ENCLAVE`: Set to true when running inside Marlin enclave
-- `ENABLE_AUTONOMOUS_MODE`: Enable autonomous trading
-- `RISK_LEVEL`: Trading risk level (low/medium/high)
+## WebSocket API
+
+The Auto Trader exposes a WebSocket API for real-time updates. Connect to `ws://localhost:3222/ws` to receive the following events:
+
+- `llm_prompt`: When an LLM prompt is sent
+- `llm_response`: When an LLM response is received
+- `autonomous_started`: When autonomous trading begins
+- `autonomous_stopped`: When autonomous trading ends
+- `cycle_started`: When a trading cycle begins
+- `cycle_completed`: When a trading cycle completes
+- `cycle_error`: When a trading cycle encounters an error
+- `analysis_started`: When market analysis begins
+- `analysis_completed`: When market analysis completes
+- `trade_started`: When a trade is initiated
+- `trade_completed`: When a trade is completed
+- `no_trade_decision`: When analysis results in no trade
+- Various task events (`task_queued`, `task_started`, etc.)
 
 ## Architecture
 
-### Core Components
+The Auto Trader consists of:
 
-- **Traditional Agent**: Implements direct LLM integration
-- **AgentKit Agent**: Implements Coinbase's AgentKit for enhanced DeFi capabilities
-- **Coordinated Agent**: Combines insights from both agents
-- **Recall Memory Manager**: Transparent storage of decisions
-- **Attestation Service**: Verification of the TEE environment
-
-### Key Files
-
-- `src/index.ts`: Main application entry point
-- `src/agent/index.ts`: Agent interface definition
-- `src/agent/coordination-agent.ts`: Coordination between agents
-- `src/services/recall-memory.ts`: Recall Network memory manager
-- `src/services/attestation.ts`: Marlin attestation verification
-- `docker/Dockerfile`: Docker container definition
-- `scripts/deploy.sh`: Marlin deployment script
+1. **Trading Agent**: Analyzes market data and makes trading decisions
+2. **Memory Manager**: Stores agent state and historical data
+3. **Execution Engine**: Interfaces with exchange APIs to execute trades
+4. **WebSocket Server**: Provides real-time updates to clients
 
 ## Troubleshooting
 
 ### Common Issues
 
-- **Recall Network Connection**: Ensure the private key is valid and has sufficient credits
-- **AgentKit Initialization**: Check CDP API key and network settings
-- **LLM Services**: Verify API keys for Azure or Google Gemini
-- **Marlin Deployment**: Check for valid wallet key with sufficient funds
+1. **Container fails to start**
+   - Check logs with `docker logs auto-trader`
+   - Verify port 3222 is not in use by another application
+   - Ensure your `.env` file exists and contains required variables
 
-### Logs
+2. **WebSocket connection issues**
+   - Check if the container is running with `docker ps`
+   - Verify port mappings with `docker port auto-trader`
+   - Test the health endpoint at `http://localhost:3222/health`
 
-Access logs at:
-
-- `autotrader.log`: Main application log
-- `autotrader_coordinated.log`: Coordinated agent log
+3. **Memory issues**
+   - By default, we use in-memory storage. For persistent storage, set `RECALL_MEMORY_MODE=persistent` in your `.env` file
 
 ## License
 
-This project is licensed under the ISC License.
+This project is part of the TEEfecta Marlin CVM deployment and is subject to its licensing terms.

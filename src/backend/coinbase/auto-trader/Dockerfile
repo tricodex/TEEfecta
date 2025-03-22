@@ -4,7 +4,7 @@ WORKDIR /app
 
 # Copy package files and install dependencies
 COPY package.json bun.lock ./
-RUN bun install --frozen-lockfile
+RUN bun install
 
 # Copy application code
 COPY . .
@@ -21,6 +21,8 @@ ENV USE_MOCK_WALLET=false
 ENV USE_MOCK_SEARCH=false
 ENV PREFERRED_LLM_PROVIDER=gemini
 ENV CDP_NETWORK_ID=base-sepolia
+# Configure Recall to use in-memory storage if no env.export exists
+ENV RECALL_MEMORY_MODE=in-memory
 
 # Create a non-root user
 RUN addgroup --system --gid 1001 nodejs \

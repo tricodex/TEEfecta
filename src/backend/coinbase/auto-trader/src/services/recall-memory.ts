@@ -62,7 +62,8 @@ export interface MemoryEntry {
 }
 
 // Default environment settings
-const ENV_EXPORT_PATH = process.env.ENV_EXPORT_PATH || '/Users/pc/apps/MPC/hackathons/TEEfecta/mono/.env.export';
+const ENV_EXPORT_PATH = process.env.ENV_EXPORT_PATH || './.env.export';
+const RECALL_MEMORY_MODE = process.env.RECALL_MEMORY_MODE || 'persistent';
 const TEMP_DIR = process.env.TEMP_DIR || '/tmp';
 
 /**
@@ -106,6 +107,12 @@ interface RecallQueryResult {
  */
 function executeRecallCommand(command: string): string {
   try {
+    // Check if we're in in-memory mode or the env export file doesn't exist
+    if (RECALL_MEMORY_MODE === 'in-memory' || !fs.existsSync(ENV_EXPORT_PATH)) {
+      console.log(`Skipping recall command in in-memory mode: ${command.split(' ')[0]} ${command.split(' ')[1]}`);
+      return '';
+    }
+    
     // Add source environment and execute
     const fullCommand = `source ${ENV_EXPORT_PATH} && ${command}`;
     console.log(`Executing recall command: ${command.split(' ')[0]} ${command.split(' ')[1]}`);
@@ -134,6 +141,7 @@ export class RecallMemoryManager implements MemoryManager {
   private tempDir: string;
   private initialized: boolean = false;
   private memoryStore: Map<string, MemoryEntry> = new Map();
+  private useInMemoryOnly: boolean = false;
 
   /**
    * Create a new RecallMemoryManager
@@ -152,11 +160,15 @@ export class RecallMemoryManager implements MemoryManager {
     this.bucketAddress = process.env.RECALL_BUCKET_ADDRESS || '0xff000000000000000000000000000000000000e2';
     this.envExportPath = ENV_EXPORT_PATH;
     this.tempDir = TEMP_DIR;
+    this.useInMemoryOnly = RECALL_MEMORY_MODE === 'in-memory';
     
     // Create temp directory if it doesn't exist
     ensureDirExists(this.tempDir);
     
-    if (!fs.existsSync(this.envExportPath)) {
+    if (this.useInMemoryOnly) {
+      console.log('Memory manager configured for in-memory mode only');
+      this.initialized = false;
+    } else if (!fs.existsSync(this.envExportPath)) {
       console.warn(`Warning: Environment export file not found: ${this.envExportPath}`);
       console.warn('Memory operations will use in-memory storage only');
       this.initialized = false;
@@ -181,18 +193,17 @@ export class RecallMemoryManager implements MemoryManager {
    * Test connection to Recall Network
    */
   private testConnection(): boolean {
+    if (this.useInMemoryOnly) {
+      return false;
+    }
+    
     try {
-      const cmd = `recall account info`;
+      const cmd = `recall account`;
       const output = executeRecallCommand(cmd);
       
       // If command execution failed, output will be empty string
       if (!output) {
         console.warn('Empty response from Recall Network, continuing with in-memory storage');
-        return false;
-      }
-      
-      if (!output.includes('address') || !output.includes('balance')) {
-        console.warn('Invalid response format from Recall Network, continuing with in-memory storage');
         return false;
       }
       
