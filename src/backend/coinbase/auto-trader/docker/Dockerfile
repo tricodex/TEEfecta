@@ -4,7 +4,10 @@ FROM alpine:3.19
 ARG TARGETARCH
 
 # install dependency tools
-RUN apk add --no-cache net-tools iptables iproute2 wget nodejs npm
+RUN apk add --no-cache net-tools iptables iproute2 wget curl
+
+# Install Bun
+RUN curl -fsSL https://bun.sh/install | bash
 
 # working directory
 WORKDIR /app
@@ -42,7 +45,7 @@ RUN chmod +x setup.sh
 
 # Install Node.js dependencies
 COPY package.json /app/
-RUN npm install
+RUN ~/.bun/bin/bun install
 
 # Copy application files
 COPY dist/ /app/dist/

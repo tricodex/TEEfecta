@@ -3,7 +3,7 @@ import { TradingAgent } from './agent/trading-agent.js';
 import { RecallMemoryManager } from './services/recall-memory.js';
 import { MockLLMService } from './services/mock-llm.js';
 import { GeminiLLMService } from './services/gemini-llm.js';
-import { tavilyActionProvider, recallActionProvider } from './action-providers/index.js';
+import { tavilyActionProvider } from './action-providers/index.js';
 import * as dotenv from 'dotenv';
 
 // Load configuration
@@ -46,12 +46,6 @@ export async function createAgent(config: AgentConfig): Promise<Agent> {
       if (process.env.TAVILY_API_KEY) {
         console.log('Registering Tavily web search action provider');
         actionProviders.push(tavilyActionProvider());
-      }
-      
-      // Add Recall provider if key is available
-      if (process.env.RECALL_PRIVATE_KEY) {
-        console.log('Registering Recall persistence action provider');
-        actionProviders.push(recallActionProvider(process.env.RECALL_PRIVATE_KEY));
       }
     }
     

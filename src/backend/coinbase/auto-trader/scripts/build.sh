@@ -23,7 +23,7 @@ echo "=== Building 4g3n7 Auto-Trader for $ARCH architecture ==="
 # Step 1: Build TypeScript application
 echo "Building TypeScript application..."
 cd "$ROOT_DIR"
-npm run build
+bun run build
 
 # Step 2: Build Docker image
 echo "Building Docker image..."

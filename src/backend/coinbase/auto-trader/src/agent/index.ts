@@ -43,7 +43,13 @@ export interface Agent {
    * Get the memory manager instance
    * Used for querying memory entries by type
    */
-  getMemoryManager(): MemoryManager | null;
+  getMemoryManager(): MemoryManager;
+  
+  /**
+   * Get the wallet instance
+   * Used for accessing wallet details like address and balance
+   */
+  getWallet(): any;
 }
 
 // LLM provider types
@@ -622,6 +628,15 @@ Proceed with caution. This is an automated fallback analysis and does not repres
    */
   getMemoryManager(): MemoryManager {
     return this.memory;
+  }
+  
+  /**
+   * Get the wallet instance
+   * Used for accessing wallet details like address and balance
+   */
+  getWallet(): any {
+    // Implementation needed
+    throw new Error('Method not implemented');
   }
 }
 

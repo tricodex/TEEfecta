@@ -27,6 +27,45 @@ export function setAgent(agentInstance: Agent) {
   console.log('Agent set in API routes');
 }
 
+// Add API health check endpoint
+router.get('/health', (req: Request, res: Response) => {
+  res.json({ status: 'healthy', version: '1.0.0', message: 'API routes are working' });
+});
+
+// Add agent status endpoint
+router.get('/agent/status', async (req: Request, res: Response) => {
+  if (!agent) {
+    return res.status(500).json({ error: 'Agent not initialized' });
+  }
+  
+  try {
+    const agentStatus = await agent.getStatus();
+    return res.json({
+      success: true,
+      status: 'operational',
+      agent: {
+        type: process.env.ENABLE_AGENTKIT === 'true' 
+          ? (process.env.ENABLE_COLLABORATION === 'true' ? 'coordinated' : 'agentkit')
+          : 'traditional',
+        provider: process.env.PREFERRED_LLM_PROVIDER || 'gemini',
+        wallet: agentStatus.wallet 
+          ? {
+              address: agentStatus.wallet.address,
+              network: agentStatus.wallet.network || 'testnet',
+              chain: agentStatus.wallet.chain || 'base-sepolia'
+            }
+          : null
+      }
+    });
+  } catch (error) {
+    console.error('Error getting agent status:', error);
+    return res.status(500).json({
+      error: 'Failed to retrieve agent status',
+      message: error instanceof Error ? error.message : String(error)
+    });
+  }
+});
+
 /**
  * Initialize API routes with an Express app and agent
  * @param app Express application
@@ -38,11 +77,6 @@ export function initAPIRoutes(app: Application, agentInstance: Agent) {
   
   // Mount the router
   app.use('/api', router);
-  
-  // Add health check route
-  app.get('/health', (req: Request, res: Response) => {
-    res.json({ status: 'healthy', version: '1.0.0' });
-  });
   
   console.log('API routes initialized');
   
@@ -467,6 +501,102 @@ router.get('/memories/:type', async (req: Request, res: Response) => {
     console.error(`Error retrieving memories of type ${req.params.type}: ${error instanceof Error ? error.message : String(error)}`);
     return res.status(500).json({ 
       error: 'Failed to retrieve memories', 
+      details: error instanceof Error ? error.message : String(error) 
+    });
+  }
+});
+
+/**
+ * Get current wallet portfolio
+ * @route GET /api/portfolio
+ */
+router.get('/portfolio', async (req: Request, res: Response) => {
+  try {
+    if (!agent) {
+      return res.status(500).json({ error: 'Agent not initialized' });
+    }
+    
+    // Check if wallet is initialized
+    if (!agent.getWallet || typeof agent.getWallet !== 'function') {
+      return res.status(500).json({ error: 'Wallet functionality not available' });
+    }
+    
+    const wallet = agent.getWallet();
+    
+    if (!wallet) {
+      return res.status(500).json({ error: 'Wallet not initialized' });
+    }
+    
+    // Get wallet address
+    const address = wallet.getAddress ? wallet.getAddress() : null;
+    
+    if (!address) {
+      return res.status(500).json({ error: 'Wallet address not available' });
+    }
+    
+    // Get token balances - this is a simplified implementation
+    // In a real application, you would fetch actual token balances from the blockchain
+    const portfolio = {
+      address,
+      network: wallet.network || 'testnet',
+      chain: wallet.chain || 'base-sepolia',
+      assets: {
+        // Placeholder for real token balances
+        "ETH": { amount: 0.5, valueUSD: 1500 },
+        "USDC": { amount: 1000, valueUSD: 1000 }
+      },
+      totalValueUSD: 2500,
+      updated: new Date().toISOString()
+    };
+    
+    return res.json({
+      success: true,
+      portfolio
+    });
+  } catch (error) {
+    console.error(`Error getting portfolio: ${error instanceof Error ? error.message : String(error)}`);
+    return res.status(500).json({ 
+      error: 'Failed to get portfolio', 
+      details: error instanceof Error ? error.message : String(error) 
+    });
+  }
+});
+
+/**
+ * Analyze a portfolio with current market data
+ * @route POST /api/analyze
+ */
+router.post('/analyze', async (req: Request, res: Response) => {
+  try {
+    if (!agent) {
+      return res.status(500).json({ error: 'Agent not initialized' });
+    }
+    
+    const { portfolio, marketData } = req.body;
+    
+    if (!portfolio) {
+      return res.status(400).json({ error: 'Portfolio data is required' });
+    }
+    
+    // Use default market data if not provided
+    const marketDataToUse = marketData || {
+      "ETH": { "price": 3000, "change24h": 0 },
+      "USDC": { "price": 1, "change24h": 0 },
+      "BTC": { "price": 60000, "change24h": 0 }
+    };
+    
+    // Call the agent's analyzePortfolio method
+    const analysis = await agent.analyzePortfolio(portfolio, marketDataToUse);
+    
+    return res.json({
+      success: true,
+      analysis,
+      timestamp: new Date().toISOString()
+    });
+  } catch (error) {
+    console.error(`Error analyzing portfolio: ${error instanceof Error ? error.message : String(error)}`);
+    return res.status(500).json({ 
+      error: 'Failed to analyze portfolio', 
       details: error instanceof Error ? error.message : String(error) 
     });
   }

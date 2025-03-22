@@ -116,7 +116,9 @@ function executeRecallCommand(command: string): string {
     if (error.stderr) {
       console.error(`Error details: ${error.stderr.toString()}`);
     }
-    throw error;
+    
+    // Return empty string instead of throwing to allow graceful degradation
+    return '';
   }
 }
 
@@ -156,15 +158,20 @@ export class RecallMemoryManager implements MemoryManager {
     
     if (!fs.existsSync(this.envExportPath)) {
       console.warn(`Warning: Environment export file not found: ${this.envExportPath}`);
-      console.warn('Memory operations may fail if RECALL_* environment variables are not set');
+      console.warn('Memory operations will use in-memory storage only');
+      this.initialized = false;
     } else {
       try {
         // Test connection to Recall Network
-        this.testConnection();
-        this.initialized = true;
-        console.log('Successfully connected to Recall Network');
+        this.initialized = this.testConnection();
+        if (this.initialized) {
+          console.log('Successfully connected to Recall Network');
+        } else {
+          console.log('Using in-memory storage as fallback');
+        }
       } catch (error) {
         console.error('Failed to initialize Recall Memory Manager:', error);
+        this.initialized = false;
         // We don't throw here to allow for graceful degradation
       }
     }
@@ -173,16 +180,26 @@ export class RecallMemoryManager implements MemoryManager {
   /**
    * Test connection to Recall Network
    */
-  private testConnection(): void {
+  private testConnection(): boolean {
     try {
       const cmd = `recall account info`;
       const output = executeRecallCommand(cmd);
-      if (!output.includes('address') || !output.includes('balance')) {
-        throw new Error('Invalid response from Recall Network');
+      
+      // If command execution failed, output will be empty string
+      if (!output) {
+        console.warn('Empty response from Recall Network, continuing with in-memory storage');
+        return false;
       }
+      
+      if (!output.includes('address') || !output.includes('balance')) {
+        console.warn('Invalid response format from Recall Network, continuing with in-memory storage');
+        return false;
+      }
+      
+      return true;
     } catch (error) {
       console.error('Failed to connect to Recall Network:', error);
-      throw error;
+      return false;
     }
   }
 

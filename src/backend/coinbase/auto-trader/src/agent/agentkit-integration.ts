@@ -144,18 +144,68 @@ export async function executeTradingStrategy(agent: AgentKit, strategyName: stri
 }
 
 /**
- * Get wallet details from AgentKit
+ * Get wallet details from the CDP Wallet API
  */
-export async function getWalletDetails(agent: AgentKit) {
+export async function getWalletDetails(kit: AgentKit): Promise<any> {
   try {
-    const result = await agent.execute({
-      actionId: 'get_wallet_details',
-      params: {}
-    });
+    console.log('Getting wallet details from CDP API');
     
-    return result;
+    const actions = kit.getActions();
+    
+    // Find get_wallet_details action
+    const getWalletDetailsAction = actions.find(a => a.name === 'get_wallet_details');
+    if (!getWalletDetailsAction) {
+      throw new Error('get_wallet_details action not found');
+    }
+    
+    console.log('Invoking get_wallet_details action');
+    const wallet = await getWalletDetailsAction.invoke({});
+    
+    if (!wallet) {
+      throw new Error('Failed to retrieve wallet details');
+    }
+    
+    // Handle both string and object response formats
+    let address;
+    if (typeof wallet === 'string') {
+      address = wallet;
+    } else if (typeof wallet === 'object' && wallet !== null) {
+      address = wallet.address || wallet.toString();
+    } else {
+      throw new Error('Invalid wallet details format');
+    }
+    
+    // Get balance if possible
+    let balance = '0';
+    try {
+      const getBalanceAction = actions.find(a => a.name === 'get_balance');
+      if (getBalanceAction) {
+        balance = await getBalanceAction.invoke({});
+      }
+    } catch (balanceError) {
+      console.warn('Failed to get balance:', balanceError);
+    }
+    
+    // Get token balances if possible
+    let tokens = [];
+    try {
+      const getTokensAction = actions.find(a => a.name === 'get_tokens' || a.name === 'get_token_balances');
+      if (getTokensAction) {
+        tokens = await getTokensAction.invoke({});
+      }
+    } catch (tokensError) {
+      console.warn('Failed to get token balances:', tokensError);
+    }
+    
+    return {
+      address,
+      balance,
+      tokens,
+      network: process.env.NETWORK || 'testnet',
+      chain: process.env.CHAIN_ID === '84532' ? 'base-sepolia' : 'ethereum'
+    };
   } catch (error) {
-    logger.error(`Failed to get wallet details: ${error instanceof Error ? error.message : String(error)}`);
+    console.error('Error getting wallet details:', error);
     throw error;
   }
 }

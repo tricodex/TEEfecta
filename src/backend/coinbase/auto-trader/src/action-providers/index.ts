@@ -1,10 +1,8 @@
 // Action providers exports
-// This file is intentionally left empty as we're now using the memory manager
+// This file exports custom action providers for AgentKit integration
 
-import { tavilyActionProvider } from './tavily-provider';
-import { recallActionProvider } from './recall-provider';
+import { tavilyActionProvider } from './tavily-provider.js';
 
 export {
-  tavilyActionProvider,
-  recallActionProvider
+  tavilyActionProvider
 };

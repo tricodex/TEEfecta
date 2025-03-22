@@ -54,6 +54,11 @@ if [ -z "$WALLET_KEY" ]; then
   usage
 fi
 
+# Export additional environment variables for docker-compose
+export RECALL_PRIVATE_KEY="$WALLET_KEY"
+export COINBASE_CDP_KEY="${COINBASE_CDP_KEY:-mock_key}"
+export COINBASE_CDP_SECRET="${COINBASE_CDP_SECRET:-mock_secret}"
+
 # Check for oyster-cvm
 if ! command -v oyster-cvm >/dev/null 2>&1; then
   echo "Error: oyster-cvm not found in PATH"

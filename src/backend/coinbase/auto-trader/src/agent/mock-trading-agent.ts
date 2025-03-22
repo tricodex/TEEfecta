@@ -1,6 +1,7 @@
 // Mock Trading Agent Implementation
 import { v4 as uuidv4 } from 'uuid';
 import { Agent } from './index.js';
+import { MemoryManager, RecallMemoryManager } from '../services/recall-memory.js';
 
 /**
  * Mock Trading Agent Implementation
@@ -9,6 +10,7 @@ import { Agent } from './index.js';
  * when real LLM services are not available.
  */
 export class MockTradingAgent implements Agent {
+  private mockMemoryStore: Map<string, any> = new Map();
   private address: string;
   
   constructor(address?: string) {
@@ -206,5 +208,17 @@ Trade with caution. This is a mock analysis for demonstration purposes.`;
         note: 'This is a mock reasoning history for ID: ' + decisionId
       }
     };
+  }
+
+  /**
+   * Get memory manager for external queries
+   */
+  getMemoryManager(): MemoryManager {
+    // Create a minimal memory manager implementation
+    return new RecallMemoryManager(
+      'mock-key',
+      'mock-bucket',
+      'testnet'
+    );
   }
 } 

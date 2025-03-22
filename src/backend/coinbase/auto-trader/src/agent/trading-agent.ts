@@ -163,16 +163,44 @@ export class TradingAgent implements Agent {
       // Generate a unique decision ID
       const decisionId = uuidv4();
       
-      // Format the portfolio data for the LLM prompt
+      // Format the portfolio data for the LLM prompt with null checking
       const portfolioSummary = Object.entries(portfolio.assets || {})
-        .map(([symbol, details]: [string, any]) => 
-          `${symbol}: ${details.amount} (Value: $${details.value.toFixed(2)})`)
+        .map(([symbol, details]: [string, any]) => {
+          // Enhanced null checking to prevent undefined errors
+          const amount = details && details.amount !== undefined ? details.amount : 'unknown';
+          let value = 'unknown';
+          
+          // Safely format the value to avoid "undefined is not an object" errors
+          if (details && details.value !== undefined && details.value !== null) {
+            if (typeof details.value === 'number') {
+              value = details.value.toFixed(2);
+            } else if (typeof details.value === 'string') {
+              const numValue = parseFloat(details.value);
+              if (!isNaN(numValue)) {
+                value = numValue.toFixed(2);
+              } else {
+                value = details.value;
+              }
+            } else {
+              value = String(details.value);
+            }
+          }
+          
+          return `${symbol}: ${amount} (Value: $${value})`;
+        })
         .join('\n');
       
-      // Format the market data for the LLM prompt
+      // Format the market data for the LLM prompt with improved null checking
       const marketDataSummary = Object.entries(marketData || {})
-        .map(([symbol, details]: [string, any]) => 
-          `${symbol}: $${details.price} (24h: ${details.change24h}%, 7d: ${details.change7d}%)`)
+        .map(([symbol, details]: [string, any]) => {
+          if (!details) return `${symbol}: No data available`;
+          
+          const price = details.price !== undefined ? details.price : 'unknown';
+          const change24h = details.change24h !== undefined ? details.change24h : 'unknown';
+          const change7d = details.change7d !== undefined ? details.change7d : 'unknown';
+          
+          return `${symbol}: $${price} (24h: ${change24h}%, 7d: ${change7d}%)`;
+        })
         .join('\n');
       
       // Build a prompt for the LLM
@@ -519,6 +547,32 @@ Provide a brief analysis of this trade in terms of:
     }
   }
   
+  /**
+   * Get memory manager for external queries
+   */
+  getMemoryManager(): MemoryManager {
+    return this.memoryManager;
+  }
+
+  /**
+   * Get the wallet associated with this agent
+   * @returns The agent's wallet
+   */
+  getWallet(): any {
+    // If we have a real wallet, return it
+    if (this.wallet) {
+      return this.wallet;
+    }
+    
+    // Otherwise, return a wallet-like object with the address
+    return {
+      address: this.address,
+      getAddress: () => this.address,
+      network: 'testnet',
+      chain: this.provider ? 'ethereum-sepolia' : 'base-sepolia'
+    };
+  }
+
   /**
    * Get reasoning history from memory
    */
