@@ -1,0 +1,38 @@
+{
+  "timestamp": "2025-03-23T01:15:02.293Z",
+  "attestations": [
+    {
+      "source": "sample data",
+      "job_id": "0x0000000000000000000000000000000000000000000000000000000000000b7e",
+      "wallet_address": "0x9Ac44C807FfcAf3e150e184a06a660EaE5b848C8",
+      "network": "arbitrum"
+    }
+  ],
+  "results": [
+    {
+      "name": "attestation_format",
+      "passed": true,
+      "details": "Attestation has valid format for job 0x0000000000000000000000000000000000000000000000000000000000000b7e"
+    },
+    {
+      "name": "pcr_validation",
+      "passed": true,
+      "details": "PCR values have valid format"
+    },
+    {
+      "name": "user_data_digest",
+      "passed": true,
+      "details": "User data digest matches expected value for minimal-docker-compose.yml"
+    },
+    {
+      "name": "network_consistency",
+      "passed": true,
+      "details": "Network 'arbitrum' is valid"
+    }
+  ],
+  "summary": {
+    "total": 4,
+    "passed": 4,
+    "failed": 0
+  }
+}

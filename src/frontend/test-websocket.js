@@ -2,7 +2,7 @@
 import { io } from 'socket.io-client';
 
 // Configuration
-const BACKEND_URL = process.env.BACKEND_URL || 'http://localhost:3222';
+const BACKEND_URL = process.env.BACKEND_URL || 'http://203.0.113.42:3222';
 console.log(`Connecting to backend at: ${BACKEND_URL}`);
 
 // Create WebSocket connection

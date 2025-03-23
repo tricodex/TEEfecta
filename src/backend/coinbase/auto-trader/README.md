@@ -1,6 +1,6 @@
-# Auto Trader
+# 4g3n7 Auto Trader
 
-An autonomous trading agent that analyzes market data and executes trades on behalf of users. This component is part of the TEEfecta Marlin CVM deployment.
+An autonomous trading agent that analyzes market data and executes trades on behalf of users. This component is part of the 4g3n7 Marlin CVM deployment.
 
 ## Features
 
@@ -9,6 +9,7 @@ An autonomous trading agent that analyzes market data and executes trades on beh
 - WebSocket-based real-time client updates
 - In-memory and persistent storage options
 - Docker-based deployment
+- Marlin CVM confidential computing deployment
 
 ## Prerequisites
 
@@ -16,6 +17,7 @@ An autonomous trading agent that analyzes market data and executes trades on beh
 - [Bun](https://bun.sh/docs/installation) (for local development)
 - [Coinbase API credentials](https://docs.cloud.coinbase.com/exchange/docs/auth)
 - [Google Gemini API key](https://ai.google.dev/docs/gemini-api/setup)
+- [Marlin Oyster CVM CLI](https://docs.marlin.org/user/install-oyster-cvm) (for CVM deployment)
 
 ## Getting Started
 
@@ -86,6 +88,45 @@ bun run src/index.ts
 
 The server will be available at `http://localhost:3222`.
 
+## Marlin CVM Deployment
+
+For confidential computing deployment on Marlin CVM, we provide several helper scripts:
+
+### 1. Deployment Testing
+
+To verify your environment and test deployment options:
+
+```bash
+# Verify wallet address
+./test-wallet-address.mjs
+
+# Check Marlin CLI version and capabilities
+./check-oyster-version.sh
+```
+
+### 2. Deployment Options
+
+Choose one of the following deployment methods:
+
+```bash
+# Option 1: Simplified deployment
+./test-simplified-deployment.sh
+
+# Option 2: Debug mode deployment
+./debug-deployment.sh
+
+# Option 3: Direct image deployment
+./direct-image-deploy.sh
+```
+
+### 3. Deployment Documentation
+
+For detailed deployment instructions and troubleshooting:
+
+- `MARLIN_DEPLOYMENT_CHECKLIST.md`: Step-by-step deployment checklist
+- `MARLIN_DEPLOYMENT_TESTING.md`: Testing procedures and troubleshooting
+- `DEPLOYMENT_ANALYSIS.md`: Analysis of deployment issues and solutions
+
 ## WebSocket API
 
 The Auto Trader exposes a WebSocket API for real-time updates. Connect to `ws://localhost:3222/ws` to receive the following events:
@@ -130,6 +171,11 @@ The Auto Trader consists of:
 3. **Memory issues**
    - By default, we use in-memory storage. For persistent storage, set `RECALL_MEMORY_MODE=persistent` in your `.env` file
 
+4. **Marlin CVM deployment issues**
+   - Refer to `MARLIN_DEPLOYMENT_TESTING.md` for detailed troubleshooting
+   - Check deployment logs for errors
+   - Verify Docker image is publicly accessible
+
 ## License
 
-This project is part of the TEEfecta Marlin CVM deployment and is subject to its licensing terms.
+This project is part of the 4g3n7 Marlin CVM deployment and is subject to its licensing terms.

@@ -1,0 +1,11 @@
+{
+  "pcrs": {
+    "PCR0": "0d8c50f0d0e9ecf25c48ba9ed1d8d5dc475be1dba553a0ef299f385bd7447220",
+    "PCR1": "d71f06f25bcd891848eecfcd65688831d9acf4be17da631b15fb5b1ecd7c3d23",
+    "PCR2": "bd79abe09f36d95bb28c08d6f9d758c3bddebc6aa634b8c65cbae4b4b54a4146"
+  },
+  "userData": "99792078fd0671ebcbc24df6862f588bd3e4eb1335571d5065c33e90d0af2448",
+  "timestamp": "2025-03-23T01:24:49Z",
+  "signature": "mock-signature-for-testing-only",
+  "jobID": "test-job-123"
+} 

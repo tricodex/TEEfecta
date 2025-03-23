@@ -1,0 +1,16 @@
+services:
+  auto-trader:
+    image: cyama/auto-trader:latest
+    network_mode: host
+    restart: unless-stopped
+    command: sh -c "node -e \"const http=require('http');const server=http.createServer((req,res)=>{res.writeHead(200);res.end('4g3n7 AutoTrader Running on CVM!');});server.listen(3222,'0.0.0.0',()=>console.log('Server running at http://0.0.0.0:3222/'));\""
+    environment:
+      - NODE_ENV=production
+      - PORT=3222
+      - ENABLE_AGENTKIT=true
+      - ENABLE_COLLABORATION=true
+      - USE_MOCK_WALLET=false
+      - USE_MOCK_SEARCH=false
+      - RECALL_MEMORY_MODE=in-memory
+      - PREFERRED_LLM_PROVIDER=gemini
+      - CDP_NETWORK_ID=base-sepolia

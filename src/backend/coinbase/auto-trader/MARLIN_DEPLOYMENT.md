@@ -15,7 +15,7 @@ Before proceeding with the deployment, ensure you have:
 
 ```bash
 # Navigate to the auto-trader directory
-cd /path/to/TEEfecta/mono/src/backend/coinbase/auto-trader
+cd /path/to/4g3n7/mono/src/backend/coinbase/auto-trader
 
 # Build the Docker image
 docker build -t auto-trader:latest .

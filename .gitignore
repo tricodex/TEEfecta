@@ -98,3 +98,5 @@ notes.md
 .env.gemini
 .env.mock
 wallets/
+
+MARLIN_DEPLOYMENT_CHECKLIST.md
