@@ -23,6 +23,8 @@ ENV PREFERRED_LLM_PROVIDER=gemini
 ENV CDP_NETWORK_ID=base-sepolia
 # Configure Recall to use in-memory storage if no env.export exists
 ENV RECALL_MEMORY_MODE=in-memory
+# Configure CORS to allow connections from any origin (you should restrict this in production)
+ENV CORS_ALLOW_ORIGIN=*
 
 # Create a non-root user
 RUN addgroup --system --gid 1001 nodejs \

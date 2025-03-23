@@ -36,7 +36,9 @@ export const WebSocketProvider: React.FC<WebSocketProviderProps> = ({
 }) => {
   // Get the base URL from the API config, or use the initialUrl prop
   const defaultUrl = initialUrl || API_CONFIG.baseUrl;
-  const [socketUrl, setSocketUrl] = useState<string>(defaultUrl);
+  // Convert HTTP URL to WebSocket URL if needed
+  const wsUrl = defaultUrl.replace(/^http/, 'ws') + '/ws';
+  const [socketUrl, setSocketUrl] = useState<string>(wsUrl);
   const [isConnected, setIsConnected] = useState<boolean>(false);
   const [events, setEvents] = useState<any[]>([]);
   const [socket, setSocket] = useState<Socket | null>(null);

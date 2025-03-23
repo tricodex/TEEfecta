@@ -5,11 +5,8 @@
 
 // Default API configuration - Can be updated after deployment
 export const API_CONFIG = {
-  // Use this for local development
-  // baseUrl: 'http://localhost:3222',
-  
-  // Using Marlin CVM deployment
-  baseUrl: 'http://203.0.113.42:3222',
+  // Get the base URL from environment variable or fallback to development values
+  baseUrl: process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:3222',
   
   timeout: 30000,
   headers: {
