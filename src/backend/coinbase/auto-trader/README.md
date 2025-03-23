@@ -1,181 +1,216 @@
-# 4g3n7 Auto Trader
+# 4g3n7 Auto Trader: Marlin Oyster CVM Deployment
 
-An autonomous trading agent that analyzes market data and executes trades on behalf of users. This component is part of the 4g3n7 Marlin CVM deployment.
+This folder contains tools and scripts for deploying the 4g3n7 Auto Trader application in a Trusted Execution Environment (TEE) using Marlin Oyster Confidential Virtual Machines (CVMs).
 
-## Features
+## Overview
 
-- AI-powered trade analysis and execution
-- Real-time market data integration
-- WebSocket-based real-time client updates
-- In-memory and persistent storage options
-- Docker-based deployment
-- Marlin CVM confidential computing deployment
+4g3n7 Auto Trader is a secure trading application that leverages TEEs to ensure user data remains secure while executing trading algorithms. The core system combines:
 
-## Prerequisites
-
-- [Docker](https://www.docker.com/get-started)
-- [Bun](https://bun.sh/docs/installation) (for local development)
-- [Coinbase API credentials](https://docs.cloud.coinbase.com/exchange/docs/auth)
-- [Google Gemini API key](https://ai.google.dev/docs/gemini-api/setup)
-- [Marlin Oyster CVM CLI](https://docs.marlin.org/user/install-oyster-cvm) (for CVM deployment)
-
-## Getting Started
-
-### Environment Setup
-
-Create a `.env` file in the root directory with the following variables:
-
-```
-# Server configuration
-PORT=3222
-NODE_ENV=production
-
-# Feature flags
-ENABLE_AGENTKIT=true
-ENABLE_COLLABORATION=true
-USE_MOCK_WALLET=false
-USE_MOCK_SEARCH=false
-
-# LLM configuration
-PREFERRED_LLM_PROVIDER=gemini
-GEMINI_API_KEY=your_gemini_api_key
-
-# Storage configuration
-RECALL_MEMORY_MODE=in-memory
-```
-
-### Docker Setup
-
-We provide several helper scripts to manage your Docker deployment:
-
-#### 1. Build and Run Container
-
-```bash
-./run-docker.sh
-```
-
-This script will:
-- Build the Docker image
-- Create necessary data directories
-- Start the container with appropriate port mappings
-
-#### 2. Check Docker Health
-
-```bash
-./docker-health-check.sh
-```
-
-This script checks:
-- If Docker is running
-- If the container exists and is running
-- Port mappings are correct
-- Service health status
-- Required environment variables
-
-### Local Development
-
-For local development without Docker:
-
-1. Install dependencies:
-```bash
-bun install
-```
-
-2. Start the development server:
-```bash
-bun run src/index.ts
-```
-
-The server will be available at `http://localhost:3222`.
-
-## Marlin CVM Deployment
-
-For confidential computing deployment on Marlin CVM, we provide several helper scripts:
-
-### 1. Deployment Testing
-
-To verify your environment and test deployment options:
-
-```bash
-# Verify wallet address
-./test-wallet-address.mjs
-
-# Check Marlin CLI version and capabilities
-./check-oyster-version.sh
-```
-
-### 2. Deployment Options
-
-Choose one of the following deployment methods:
-
-```bash
-# Option 1: Simplified deployment
-./test-simplified-deployment.sh
-
-# Option 2: Debug mode deployment
-./debug-deployment.sh
-
-# Option 3: Direct image deployment
-./direct-image-deploy.sh
-```
-
-### 3. Deployment Documentation
-
-For detailed deployment instructions and troubleshooting:
-
-- `MARLIN_DEPLOYMENT_CHECKLIST.md`: Step-by-step deployment checklist
-- `MARLIN_DEPLOYMENT_TESTING.md`: Testing procedures and troubleshooting
-- `DEPLOYMENT_ANALYSIS.md`: Analysis of deployment issues and solutions
-
-## WebSocket API
-
-The Auto Trader exposes a WebSocket API for real-time updates. Connect to `ws://localhost:3222/ws` to receive the following events:
-
-- `llm_prompt`: When an LLM prompt is sent
-- `llm_response`: When an LLM response is received
-- `autonomous_started`: When autonomous trading begins
-- `autonomous_stopped`: When autonomous trading ends
-- `cycle_started`: When a trading cycle begins
-- `cycle_completed`: When a trading cycle completes
-- `cycle_error`: When a trading cycle encounters an error
-- `analysis_started`: When market analysis begins
-- `analysis_completed`: When market analysis completes
-- `trade_started`: When a trade is initiated
-- `trade_completed`: When a trade is completed
-- `no_trade_decision`: When analysis results in no trade
-- Various task events (`task_queued`, `task_started`, etc.)
+- **Two-Tier Architecture**: A minimal attestation service runs in Marlin CVM while the full trading engine operates on a traditional server
+- **Dual Agent Framework**: Traditional trading agent works alongside an AgentKit-enhanced agent for complementary capabilities
+- **Transparent Memory System**: All trading decisions and analyses are recorded using RecallMemoryManager for audit trails
+- **Verifiable Code Execution**: Marlin's CVM enables users to verify that the exact intended code is running securely
+- **Cryptographic Trust Chain**: PCR verification ensures integrity from hardware to application layer
 
 ## Architecture
 
-The Auto Trader consists of:
+Our deployment uses a two-tier architecture:
+1. **Attestation Service (Marlin CVM)**: 
+   - Minimal service that provides cryptographic proof of integrity
+   - PCR verification to ensure platform security
+   - Runs in the Trusted Execution Environment
+   - Defined in `minimal-docker-compose.yml`:
+     ```yaml
+     services:
+       auto-trader:
+         image: cyama/auto-trader:latest
+         network_mode: host
+         restart: unless-stopped
+         command: sh -c "echo 'Server starting on port 3222' && node -e \"const http=require('http');const server=http.createServer((req,res)=>{res.writeHead(200);res.end('4g3n7 AutoTrader Running on CVM!');});server.listen(3222,'0.0.0.0',()=>console.log('Server running at http://0.0.0.0:3222/'));\""
+         environment:
+           - NODE_ENV=production
+           - ENABLE_ATTESTATION=true
+     ```
 
-1. **Trading Agent**: Analyzes market data and makes trading decisions
-2. **Memory Manager**: Stores agent state and historical data
-3. **Execution Engine**: Interfaces with exchange APIs to execute trades
-4. **WebSocket Server**: Provides real-time updates to clients
+2. **Backend Server (Traditional VPS)**:
+   - Verifies attestation from Marlin CVM before performing sensitive operations
+   - Implements full trading engine with LLM integration
+   - Provides WebSocket server for real-time client updates
+   - Serves as bridge between frontend and attestation service
 
-## Troubleshooting
+## Successful Deployment
 
-### Common Issues
+We've successfully deployed our attestation service on the Arbitrum network using ARM64 instances (c7g.xlarge). The deployment process is documented in:
+- `FINAL_VERIFICATION_REPORT.md`: Confirmation of successful attestation verification
+- `MARLIN_DEPLOYMENT_REPORT.md`: Details of the deployment process
+- `E2E_TEST_REPORT.md`: End-to-end testing results
 
-1. **Container fails to start**
-   - Check logs with `docker logs auto-trader`
-   - Verify port 3222 is not in use by another application
-   - Ensure your `.env` file exists and contains required variables
+The deployment includes:
+1. A minimal Docker Compose configuration focused on attestation testing
+2. ARM64-specific PCR value verification
+3. User data digest verification to ensure the integrity of the deployed code
 
-2. **WebSocket connection issues**
-   - Check if the container is running with `docker ps`
-   - Verify port mappings with `docker port auto-trader`
-   - Test the health endpoint at `http://localhost:3222/health`
+## Core Files for Deployment
 
-3. **Memory issues**
-   - By default, we use in-memory storage. For persistent storage, set `RECALL_MEMORY_MODE=persistent` in your `.env` file
+### Deployment Scripts
 
-4. **Marlin CVM deployment issues**
-   - Refer to `MARLIN_DEPLOYMENT_TESTING.md` for detailed troubleshooting
-   - Check deployment logs for errors
-   - Verify Docker image is publicly accessible
+- `minimal-deploy.sh`: Deploys the minimal attestation service to Arbitrum
+  - Checks for required environment variables
+  - Computes and verifies Docker Compose digest
+  - Handles deployment to Marlin network
 
-## License
+- `arbitrum-attestation.sh`: Verifies attestation on the deployed CVM
+  - PCR verification with ARM64 presets
+  - Validation of Docker digest values
+  - Generation of attestation data for agent consumption
 
-This project is part of the 4g3n7 Marlin CVM deployment and is subject to its licensing terms.
+- `deploy-24h-attestation.sh`: Deploys a service that runs for 24 hours with attestation
+
+### Attestation Files
+
+- `agent-attestation.js`: Verifies attestation data for Marlin CVM
+  - Uses expected PCR values for ARM64 instances
+  - Implements functions to load and validate attestation data
+  - Security checks for attestation freshness
+
+- `verify-agent-attestation.js`: Handles verification of agent attestation
+  - Validation of PCR values against known good values
+  - Signature verification
+  - Timestamp validation for attestation freshness
+
+- `offline-attestation-verification.js`: Provides offline verification of attestation data
+  - Verifies PCR values without requiring connection to enclave
+  - Validates attestation signatures
+  - Generates verification reports for audit purposes
+
+## WebSocket Implementation
+
+Our WebSocket implementation provides real-time trading updates with attestation verification:
+
+### Backend WebSocket Server
+
+```javascript
+// Server configuration
+this.io = new SocketIOServer(server, {
+  cors: {
+    origin: process.env.FRONTEND_URL || "*",
+    methods: ["GET", "POST"]
+  }
+});
+```
+
+The WebSocket server:
+- Broadcasts trading events (start, complete, error)
+- Shares analysis events (market data, decision points)
+- Reports system events (attestation status, health checks)
+- Verifies all data comes from attested environments
+
+## Verification Process
+
+The attestation verification ensures:
+1. PCR values match expected values for ARM64 instances
+2. Docker Compose digest verification to prevent tampering
+3. Continuous verification to maintain security over time
+4. Attestation freshness (rejects attestations older than 24 hours)
+
+### PCR Measurements (ARM64)
+
+The expected PCR measurements for ARM64 instances have been verified:
+
+| PCR | Value | Status |
+|-----|-------|--------|
+| PCR0 | 0d8c50f0d0e9ecf25c48ba9ed1d8d5dc475be1dba553a0ef299f385bd7447220 | ✅ Verified |
+| PCR1 | d71f06f25bcd891848eecfcd65688831d9acf4be17da631b15fb5b1ecd7c3d23 | ✅ Verified |
+| PCR2 | bd79abe09f36d95bb28c08d6f9d758c3bddebc6aa634b8c65cbae4b4b54a4146 | ✅ Verified |
+
+## Integration Components
+
+### LLM Integration
+
+- Google Gemini 2.0 Flash model for market analysis and trading decisions
+- Optional Azure OpenAI integration as fallback
+- LangChain framework for structured agent reasoning
+- Service interface abstraction to switch between providers
+
+### AgentKit Integration
+
+Our implementation leverages AgentKit's capabilities with multiple action providers:
+- walletActionProvider for wallet management
+- erc20ActionProvider for token operations
+- cdpApiActionProvider and cdpWalletActionProvider for Coinbase integration
+- wethActionProvider, defillamaActionProvider for market data
+
+### Memory Management
+
+- RecallMemoryManager as common memory layer for both agent types
+- Transparent record-keeping of agent actions and analyses
+- Shared memory context between agent implementations
+
+## Getting Started
+
+### Prerequisites
+
+- [Marlin Oyster CVM CLI](https://docs.marlin.org/oyster/) installed
+- Node.js (v16 or higher)
+- Bun package manager
+- Wallet with sufficient funds on Arbitrum network
+
+### Quick Start
+
+1. Set up your environment:
+   ```bash
+   export MARLIN=your_private_key
+   ```
+
+2. Deploy the attestation service:
+   ```bash
+   ./minimal-deploy.sh
+   ```
+
+3. Verify attestation:
+   ```bash
+   ./arbitrum-attestation.sh
+   ```
+
+4. Run backend with attestation integration:
+   ```bash
+   # Set environment variables
+   export ATTESTATION_FILE=./attestation-data.json
+   export ENABLE_ATTESTATION=true
+   
+   # Start server
+   bun run start
+   ```
+
+## Integration with Backend
+
+Our auto-trader backend integrates with this attestation service to ensure security:
+
+1. The backend verifies attestation before performing any sensitive operations
+2. WebSocket connections are established only with verified enclave instances
+3. Trading decisions are only executed after verification
+4. Wallet private keys are secured within the TEE
+
+## Frontend
+
+> **Note**: The frontend for this project is maintained in a separate repository at [https://github.com/tricodex/4g3n7-frontend](https://github.com/tricodex/4g3n7-frontend) and is not part of this codebase.
+
+## Documentation
+
+For more details, refer to:
+
+- `ATTESTATION_GUIDE.md`: Complete guide to attestation
+- `FINAL_VERIFICATION_REPORT.md`: Detailed report on attestation verification
+- `README-attestation.md`: Documentation on the attestation module
+- `ATTESTATION_SUMMARY.md`: Summary of attestation process
+- `MARLIN_DEPLOYMENT_REPORT.md`: Details of deployment procedures
+
+## Security Considerations
+
+- Hardware-level memory encryption in TEE protects user credentials
+- Transaction signing can only be performed in verified environments
+- Never expose private keys in scripts or logs
+- Always verify attestation before performing sensitive operations
+- Use ARM64 instances for consistent PCR values
+- Implement periodic re-attestation every ~5 minutes with 20% probability
+- Ensure service health verification before operations

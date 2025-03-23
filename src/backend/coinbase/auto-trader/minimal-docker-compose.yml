@@ -1,27 +1,26 @@
-version: '3'
+version: '3.8'
 
 services:
-  # Simple web application that will be attested
-  attestable-app:
-    image: public.ecr.aws/s7a1v0l4/marlin-testbox:latest
+  attestation-service:
+    image: auto-trader-auto-trader:latest
     ports:
-      - "3222:3222"
+      - "3222:3222"  # Main application port
+      - "1300:1300"  # Attestation service port
     environment:
       - NODE_ENV=production
       - PORT=3222
-    restart: always
-    command: ["node", "index.js"]
-    volumes:
-      - /tmp/app-data:/app/data
-
-  # Health monitoring endpoint
-  health-check:
-    image: public.ecr.aws/s7a1v0l4/marlin-testbox:latest
-    ports:
-      - "8080:8080"
-    environment:
-      - CHECK_INTERVAL=60
-      - REPORT_PATH=/health
-    command: ["node", "health.js"]
-    depends_on:
-      - attestable-app
+      - ENABLE_AGENTKIT=true
+      - ENABLE_COLLABORATION=true
+      - ENABLE_WEBSOCKETS=true
+      - MARLIN_ENCLAVE=true
+      - ENABLE_ATTESTATION=true
+      - ATTESTATION_PORT=1300
+      - RECALL_MEMORY_MODE=in-memory
+    restart: unless-stopped
+    network_mode: host  # Required for Marlin CVM
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3222/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
